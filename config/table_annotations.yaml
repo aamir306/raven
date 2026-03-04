@@ -1,0 +1,97 @@
+# Table Annotations
+# =================
+# Per-table metadata that RAVEN injects into the prompt context.
+# Includes warnings, tips, known issues, owners, and refresh schedules.
+#
+# This file is parsed by preprocessing/ingest_documentation.py and
+# made available to the Schema Selector and SQL Generator stages.
+#
+# Structure:
+#   tables:
+#     table_name:
+#       warning: "Critical warning shown prominently in prompts"
+#       notes: "General notes about the table"
+#       owner: "team or person responsible"
+#       refresh_schedule: "how often data refreshes"
+#       known_issues: ["list of known data quality issues"]
+#       tips: ["list of query tips for this table"]
+#       partition_key: "column used for partitioning"
+#       required_filters: ["columns that MUST appear in WHERE"]
+
+tables:
+  # ── Example Gold Layer ──────────────────────────────────────────
+
+  gold.fact_orders:
+    warning: "ALWAYS filter on order_date — full scan takes 20+ minutes"
+    notes: "Central order fact table, grain = one row per order_id"
+    owner: "data-engineering"
+    refresh_schedule: "Daily at 03:00 UTC"
+    partition_key: "order_date"
+    required_filters:
+      - "order_date"
+    known_issues:
+      - "Duplicate order_ids exist for dates before 2023-06-01 (migration artifact)"
+      - "cancelled_at may be NULL even for cancelled orders before 2024-01"
+    tips:
+      - "Use order_date >= DATE '2023-06-01' to avoid duplicates"
+      - "Join to dim_customer on customer_id for customer attributes"
+      - "revenue = quantity * unit_price (NOT total_amount, which includes tax)"
+
+  gold.dim_customer:
+    notes: "SCD Type 2 — use is_current = true for latest version"
+    owner: "data-engineering"
+    refresh_schedule: "Daily at 04:00 UTC"
+    tips:
+      - "Always filter is_current = true unless doing historical analysis"
+      - "customer_segment values: 'Enterprise', 'SMB', 'Consumer' (case-sensitive)"
+
+  gold.dim_product:
+    notes: "Product dimension, one row per product_id"
+    owner: "product-analytics"
+    refresh_schedule: "Daily at 04:00 UTC"
+    tips:
+      - "category is VARCHAR, use exact match (case-sensitive)"
+      - "price is list price, not selling price — join fact_orders for actual price"
+
+  gold.agg_daily_revenue:
+    notes: "Pre-aggregated daily revenue by region and product_category"
+    owner: "data-engineering"
+    refresh_schedule: "Daily at 05:00 UTC"
+    tips:
+      - "Use this instead of aggregating fact_orders when possible — much faster"
+      - "Does NOT include cancelled or refunded orders"
+
+  # ── Example Silver Layer ────────────────────────────────────────
+
+  silver.events_cleaned:
+    warning: "High-volume table — MUST filter on event_date partition"
+    notes: "Cleaned event stream, ~50M rows/day"
+    owner: "data-engineering"
+    refresh_schedule: "Hourly"
+    partition_key: "event_date"
+    required_filters:
+      - "event_date"
+    known_issues:
+      - "event_type 'page_view' was renamed from 'pageview' on 2024-03-01"
+    tips:
+      - "Always limit date range to avoid timeouts"
+      - "user_id can be NULL for anonymous events"
+
+  silver.payments_enriched:
+    notes: "Payments joined with currency conversion rates"
+    owner: "finance-data"
+    refresh_schedule: "Daily at 03:30 UTC"
+    tips:
+      - "amount_usd is the normalized amount in USD"
+      - "payment_status values: 'completed', 'pending', 'failed', 'refunded'"
+
+  # ── Example Wide Tables ─────────────────────────────────────────
+
+  gold.wide_customer_360:
+    warning: "500+ columns — always SELECT specific columns, never SELECT *"
+    notes: "Denormalized customer view combining orders, events, support tickets"
+    owner: "customer-analytics"
+    refresh_schedule: "Daily at 06:00 UTC"
+    tips:
+      - "Prefer fact/dim tables for simple queries; use this only for cross-domain analysis"
+      - "ltv_30d, ltv_90d, ltv_365d are pre-computed LTV metrics"
