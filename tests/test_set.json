@@ -398,5 +398,405 @@
     "expected_tables": ["gold.finance.transactions", "gold.finance.accounts"],
     "expected_sql_pattern": "SELECT.*balance.*AVG.*monthly.*burn.*runway",
     "category": "metric"
+  },
+  {
+    "id": 51,
+    "question": "Show me users who had events with nested properties containing a specific campaign ID",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["silver.events.user_events"],
+    "expected_sql_pattern": "SELECT.*UNNEST.*properties.*campaign",
+    "category": "unnest"
+  },
+  {
+    "id": 52,
+    "question": "What were the product categories in each user's most recent order?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders", "gold.sales.order_items", "gold.product.products"],
+    "expected_sql_pattern": "WITH.*ROW_NUMBER.*OVER.*PARTITION BY.*ORDER BY.*DESC",
+    "category": "window_function"
+  },
+  {
+    "id": 53,
+    "question": "Compare this month's revenue to the same month last year",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*SUM.*CASE.*WHEN.*date_trunc.*MONTH.*current_date|date_add",
+    "category": "time_series"
+  },
+  {
+    "id": 54,
+    "question": "Show the rolling 7-day average of daily active users",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.analytics.daily_active_users"],
+    "expected_sql_pattern": "SELECT.*AVG.*OVER.*ORDER BY.*ROWS.*BETWEEN.*6.*PRECEDING.*CURRENT",
+    "category": "window_function"
+  },
+  {
+    "id": 55,
+    "question": "Which customers placed orders in January but not in February?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*EXCEPT|NOT IN|NOT EXISTS|LEFT JOIN.*IS NULL",
+    "category": "set_operation"
+  },
+  {
+    "id": 56,
+    "question": "Flatten the nested tags array in product metadata and count occurrences of each tag",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["silver.product.product_metadata"],
+    "expected_sql_pattern": "SELECT.*UNNEST.*tags.*COUNT.*GROUP BY",
+    "category": "unnest"
+  },
+  {
+    "id": 57,
+    "question": "What was the state of the customers table as of January 1st using time travel?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.crm.customers"],
+    "expected_sql_pattern": "SELECT.*FROM.*FOR TIMESTAMP AS OF|FOR VERSION AS OF|SYSTEM_TIME",
+    "category": "time_travel"
+  },
+  {
+    "id": 58,
+    "question": "Show the median order value per customer segment",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders", "gold.crm.customer_segments"],
+    "expected_sql_pattern": "SELECT.*approx_percentile.*0\\.5|percentile_cont|MEDIAN",
+    "category": "statistics"
+  },
+  {
+    "id": 59,
+    "question": "Calculate the month-over-month growth rate for each product category",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders", "gold.product.products"],
+    "expected_sql_pattern": "SELECT.*LAG.*OVER.*PARTITION BY.*ORDER BY.*month",
+    "category": "window_function"
+  },
+  {
+    "id": 60,
+    "question": "How many users signed up yesterday?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.crm.customers"],
+    "expected_sql_pattern": "SELECT.*COUNT.*FROM.*WHERE.*date.*current_date.*1|yesterday",
+    "category": "filter"
+  },
+  {
+    "id": 61,
+    "question": "List all orders with more than 5 items",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.finance.orders", "gold.sales.order_items"],
+    "expected_sql_pattern": "SELECT.*HAVING.*COUNT.*>.*5|WHERE.*item_count.*>.*5",
+    "category": "filter"
+  },
+  {
+    "id": 62,
+    "question": "What is the total number of products in each warehouse?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.inventory.warehouse_stock"],
+    "expected_sql_pattern": "SELECT.*warehouse.*SUM.*quantity.*GROUP BY",
+    "category": "aggregation"
+  },
+  {
+    "id": 63,
+    "question": "Find the gap analysis between expected and actual deliveries per supplier",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.procurement.purchase_orders", "gold.procurement.deliveries", "gold.procurement.suppliers"],
+    "expected_sql_pattern": "SELECT.*supplier.*expected.*actual.*diff|gap",
+    "category": "multi_table"
+  },
+  {
+    "id": 64,
+    "question": "What percentage of users completed onboarding within 24 hours of signup?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.crm.customers", "gold.analytics.onboarding_events"],
+    "expected_sql_pattern": "SELECT.*COUNT.*CASE.*date_diff|INTERVAL.*24.*HOUR.*100",
+    "category": "funnel"
+  },
+  {
+    "id": 65,
+    "question": "Show the cumulative revenue by day for the current quarter",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*SUM.*OVER.*ORDER BY.*date.*ROWS.*UNBOUNDED.*PRECEDING",
+    "category": "window_function"
+  },
+  {
+    "id": 66,
+    "question": "Rank schools by student enrollment using dense rank",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.education.schools"],
+    "expected_sql_pattern": "SELECT.*DENSE_RANK.*OVER.*ORDER BY.*enrollment.*DESC",
+    "category": "ranking"
+  },
+  {
+    "id": 67,
+    "question": "What are the top 5 error codes in our API logs this week?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["silver.logs.api_requests"],
+    "expected_sql_pattern": "SELECT.*error_code.*COUNT.*GROUP BY.*ORDER BY.*DESC.*LIMIT 5",
+    "category": "ranking"
+  },
+  {
+    "id": 68,
+    "question": "Calculate the Jaccard similarity between user purchase baskets",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.sales.order_items"],
+    "expected_sql_pattern": "SELECT.*CARDINALITY.*ARRAY_INTERSECT|COUNT.*DISTINCT.*intersection.*union",
+    "category": "market_basket"
+  },
+  {
+    "id": 69,
+    "question": "Show the lead-to-opportunity conversion rate by source channel for the last 90 days",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.crm.leads", "gold.crm.opportunities"],
+    "expected_sql_pattern": "SELECT.*channel.*COUNT.*opportunity.*COUNT.*lead.*100",
+    "category": "funnel"
+  },
+  {
+    "id": 70,
+    "question": "Pivot monthly revenue by product line for the last 12 months",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders", "gold.product.product_lines"],
+    "expected_sql_pattern": "SELECT.*CASE.*WHEN.*month|SUM.*IF|FILTER.*WHERE.*month",
+    "category": "pivot"
+  },
+  {
+    "id": 71,
+    "question": "What is the average time between a user's first and second purchase?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "WITH.*ROW_NUMBER.*OVER.*PARTITION BY.*user.*ORDER BY.*date.*date_diff|LEAD",
+    "category": "window_function"
+  },
+  {
+    "id": 72,
+    "question": "Identify duplicate customer records based on email and phone",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.crm.customers"],
+    "expected_sql_pattern": "SELECT.*GROUP BY.*email.*phone.*HAVING.*COUNT.*>.*1|SELF JOIN",
+    "category": "data_quality"
+  },
+  {
+    "id": 73,
+    "question": "What was the order total for customer ID 12345?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*SUM.*FROM.*WHERE.*customer_id.*12345",
+    "category": "filter"
+  },
+  {
+    "id": 74,
+    "question": "Show me a histogram of order values in $50 buckets",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*FLOOR.*50|width_bucket.*COUNT.*GROUP BY.*ORDER BY",
+    "category": "histogram"
+  },
+  {
+    "id": 75,
+    "question": "Find all tables that have NULL rates above 50% for any column",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["information_schema.columns"],
+    "expected_sql_pattern": "SELECT.*null_fraction|COUNT.*NULL.*COUNT.*100",
+    "category": "data_quality"
+  },
+  {
+    "id": 76,
+    "question": "What is the session-to-purchase conversion funnel for mobile users?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.analytics.sessions", "gold.analytics.page_views", "gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*COUNT.*DISTINCT.*session.*purchase.*mobile",
+    "category": "funnel"
+  },
+  {
+    "id": 77,
+    "question": "Calculate the coefficient of variation for daily revenue",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*STDDEV.*AVG.*coefficient|cv",
+    "category": "statistics"
+  },
+  {
+    "id": 78,
+    "question": "Show the UNNEST of variant attributes for configurable products",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.product.products", "gold.product.product_variants"],
+    "expected_sql_pattern": "SELECT.*UNNEST.*attributes|variants.*CROSS JOIN",
+    "category": "unnest"
+  },
+  {
+    "id": 79,
+    "question": "How many classes were created last week?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.education.classes"],
+    "expected_sql_pattern": "SELECT.*COUNT.*FROM.*WHERE.*date.*BETWEEN|>=.*AND.*<=",
+    "category": "filter"
+  },
+  {
+    "id": 80,
+    "question": "What is the latest snapshot of inventory levels using Iceberg time travel?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.inventory.warehouse_stock"],
+    "expected_sql_pattern": "SELECT.*FOR TIMESTAMP AS OF|\\$snapshots|AS OF",
+    "category": "time_travel"
+  },
+  {
+    "id": 81,
+    "question": "Show the retention matrix: week 0 through week 8 by cohort",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.analytics.user_activity", "gold.crm.customers"],
+    "expected_sql_pattern": "WITH.*cohort.*date_diff.*week.*COUNT.*DISTINCT.*CASE",
+    "category": "cohort"
+  },
+  {
+    "id": 82,
+    "question": "What is the approximate distinct count of visitors per page?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.analytics.page_views"],
+    "expected_sql_pattern": "SELECT.*page.*approx_distinct|COUNT.*DISTINCT.*GROUP BY",
+    "category": "aggregation"
+  },
+  {
+    "id": 83,
+    "question": "Find customers whose lifetime value decreased quarter over quarter",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.crm.customers", "gold.finance.orders"],
+    "expected_sql_pattern": "WITH.*LAG.*OVER.*PARTITION.*ORDER BY.*quarter.*WHERE.*current.*<.*previous",
+    "category": "window_function"
+  },
+  {
+    "id": 84,
+    "question": "Show the first-touch and last-touch attribution for conversions",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.analytics.touchpoints", "gold.analytics.conversions"],
+    "expected_sql_pattern": "SELECT.*FIRST_VALUE|LAST_VALUE|MIN.*MAX.*OVER.*PARTITION BY.*conversion",
+    "category": "multi_table"
+  },
+  {
+    "id": 85,
+    "question": "What is the average response time by API endpoint?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["silver.logs.api_requests"],
+    "expected_sql_pattern": "SELECT.*endpoint.*AVG.*response_time.*GROUP BY",
+    "category": "aggregation"
+  },
+  {
+    "id": 86,
+    "question": "Generate a cross-tabulation of student grades by subject and school",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.education.student_grades", "gold.education.schools"],
+    "expected_sql_pattern": "SELECT.*school.*SUM.*CASE.*WHEN.*subject|FILTER.*WHERE.*subject",
+    "category": "pivot"
+  },
+  {
+    "id": 87,
+    "question": "Show the Pareto chart data: 80% of revenue comes from what percentage of customers?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders", "gold.crm.customers"],
+    "expected_sql_pattern": "WITH.*SUM.*OVER.*ORDER BY.*DESC.*cumulative.*0\\.8|80",
+    "category": "statistics"
+  },
+  {
+    "id": 88,
+    "question": "What are the most common sequences of 3 consecutive page views?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.analytics.page_views"],
+    "expected_sql_pattern": "SELECT.*LEAD.*OVER.*PARTITION BY.*ORDER BY.*timestamp.*COUNT.*GROUP BY",
+    "category": "window_function"
+  },
+  {
+    "id": 89,
+    "question": "Which teachers have the highest average student score improvement?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.education.student_grades", "gold.education.classes", "gold.education.teachers"],
+    "expected_sql_pattern": "SELECT.*teacher.*AVG.*improvement|after.*before.*JOIN.*JOIN.*GROUP BY",
+    "category": "multi_table"
+  },
+  {
+    "id": 90,
+    "question": "Show the distribution of order delivery times in 1-day buckets",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders", "gold.logistics.deliveries"],
+    "expected_sql_pattern": "SELECT.*date_diff.*day.*COUNT.*GROUP BY.*ORDER BY",
+    "category": "histogram"
+  },
+  {
+    "id": 91,
+    "question": "What is the current balance of each payment gateway?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.finance.payment_gateways"],
+    "expected_sql_pattern": "SELECT.*gateway.*balance|SUM.*amount.*GROUP BY",
+    "category": "aggregation"
+  },
+  {
+    "id": 92,
+    "question": "Find students enrolled in more than 3 courses simultaneously",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.education.enrollments"],
+    "expected_sql_pattern": "SELECT.*student.*COUNT.*GROUP BY.*HAVING.*COUNT.*>.*3",
+    "category": "filter"
+  },
+  {
+    "id": 93,
+    "question": "Compare the query performance of partitioned vs non-partitioned tables",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["system.runtime.queries"],
+    "expected_sql_pattern": "SELECT.*table.*AVG.*wall_time|elapsed.*CASE.*WHEN.*partition",
+    "category": "comparison"
+  },
+  {
+    "id": 94,
+    "question": "Show the sparse matrix of user-product interactions for collaborative filtering",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.analytics.user_events", "gold.product.products"],
+    "expected_sql_pattern": "SELECT.*user.*product.*COUNT|SUM.*interaction.*GROUP BY",
+    "category": "market_basket"
+  },
+  {
+    "id": 95,
+    "question": "What is the TRY_CAST safe conversion rate for the amount column?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["silver.finance.raw_transactions"],
+    "expected_sql_pattern": "SELECT.*TRY_CAST.*COUNT.*NULL.*COUNT.*100",
+    "category": "data_quality"
+  },
+  {
+    "id": 96,
+    "question": "Show the subscriber growth net of churns by week",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.subscriptions.events"],
+    "expected_sql_pattern": "SELECT.*week.*SUM.*CASE.*WHEN.*subscribed.*churned.*net",
+    "category": "time_series"
+  },
+  {
+    "id": 97,
+    "question": "What was the pass rate for each exam?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.education.exam_results"],
+    "expected_sql_pattern": "SELECT.*exam.*SUM.*CASE.*WHEN.*pass.*COUNT.*100",
+    "category": "ratio"
+  },
+  {
+    "id": 98,
+    "question": "Find all schema changes in the Iceberg tables over the past 30 days",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["iceberg.information_schema.columns"],
+    "expected_sql_pattern": "SELECT.*\\$history|\\$snapshots|FOR TIMESTAMP|ALTER.*schema",
+    "category": "time_travel"
+  },
+  {
+    "id": 99,
+    "question": "Calculate the z-score of each product's daily sales volume",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.sales.daily_product_sales"],
+    "expected_sql_pattern": "SELECT.*product.*value.*AVG.*STDDEV.*z_score",
+    "category": "statistics"
+  },
+  {
+    "id": 100,
+    "question": "Show a UNION of revenue from all three payment channels with channel labels",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.card_payments", "gold.finance.bank_transfers", "gold.finance.wallet_payments"],
+    "expected_sql_pattern": "SELECT.*channel.*amount.*UNION ALL.*UNION ALL",
+    "category": "set_operation"
   }
 ]

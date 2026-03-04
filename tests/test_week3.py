@@ -766,7 +766,7 @@ class TestEvalAccuracy:
     def test_load_test_set(self):
         from tests.eval_accuracy import AccuracyEvaluator
         evaluator = AccuracyEvaluator()
-        assert len(evaluator.test_set) == 50
+        assert len(evaluator.test_set) == 100
 
     def test_extract_tables_from_sql(self):
         from tests.eval_accuracy import AccuracyEvaluator
@@ -800,7 +800,7 @@ class TestEvalAccuracy:
         from tests.eval_accuracy import AccuracyEvaluator
         evaluator = AccuracyEvaluator()
         summary = await evaluator.run(dry_run=True)
-        assert summary.total == 50
+        assert summary.total == 100
         assert summary.composite_score_avg == 100.0
 
     def test_format_report(self):
