@@ -20,10 +20,10 @@ from .connectors.openai_client import OpenAIClient
 from .connectors.pgvector_store import PgVectorStore
 from .connectors.trino_connector import TrinoConnector
 from .router.classifier import DifficultyClassifier, Difficulty
-from .retrieval.context_retriever import ContextRetriever
-from .schema.selector import SchemaSelector
+from .retrieval.information_retriever import InformationRetriever
+from .schema.schema_selector import SchemaSelector
 from .probes.probe_runner import ProbeRunner
-from .generation.sql_generator import SQLGenerator
+from .generation.candidate_generator import CandidateGenerator
 from .validation.candidate_selector import CandidateSelector
 from .output.renderer import OutputRenderer
 from .feedback.collector import FeedbackCollector
@@ -92,14 +92,14 @@ class Pipeline:
         self.pgvector = pgvector
         self.openai = openai
 
-        # Initialize stage handlers
+        # Initialize stage handlers (decomposed orchestrators)
         self.router = DifficultyClassifier(openai)
-        self.retriever = ContextRetriever(openai, pgvector)
+        self.retriever = InformationRetriever(openai, pgvector)
         self.schema_selector = SchemaSelector(openai, pgvector)
         self.probe_runner = ProbeRunner(openai, trino)
-        self.generator = SQLGenerator(openai, trino)
+        self.generator = CandidateGenerator(openai, trino)
         self.validator = CandidateSelector(openai, trino)
-        self.renderer = OutputRenderer(openai)
+        self.renderer = OutputRenderer(openai, trino)
         self.feedback = FeedbackCollector(pgvector)
 
     async def generate(self, question: str, conversation_id: str | None = None) -> dict:

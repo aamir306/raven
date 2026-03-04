@@ -1,127 +1,114 @@
 """
-Stage 7: Output Renderer
-=========================
-- Auto-detect chart type from query results
-- Generate NL summary of results
-- Format data for API response
+Stage 7: Output Renderer — Orchestrator
+=========================================
+Coordinates four output sub-modules:
+  7.1  QueryExecutor  – Execute SQL on Trino
+  7.2  ChartDetector  – Detect chart type
+  7.3  ChartGenerator – Generate Vega-Lite chart config
+  7.4  NLSummarizer   – Generate natural-language summary
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from pathlib import Path
 from typing import Any
 
 from ..connectors.openai_client import OpenAIClient
+from ..connectors.trino_connector import TrinoConnector
+from .query_executor import QueryExecutor
+from .chart_detector import ChartDetector
+from .chart_generator import ChartGenerator
+from .nl_summarizer import NLSummarizer
 
 logger = logging.getLogger(__name__)
 
-PROMPTS_DIR = Path(__file__).resolve().parents[3] / "prompts"
-
 
 class OutputRenderer:
-    """Render query results with chart detection and NL summary."""
+    """Stage 7 orchestrator — execute + chart + summarize."""
 
-    def __init__(self, openai: OpenAIClient):
+    def __init__(self, openai: OpenAIClient, trino: TrinoConnector | None = None):
         self.openai = openai
-        self._chart_prompt = (PROMPTS_DIR / "out_chart_detect.txt").read_text()
-        self._summary_prompt = (PROMPTS_DIR / "out_nl_summary.txt").read_text()
+        self.trino = trino
+
+        # Sub-modules
+        self.executor = QueryExecutor(trino) if trino else None
+        self.chart_detector = ChartDetector(openai)
+        self.chart_generator = ChartGenerator()
+        self.nl_summarizer = NLSummarizer(openai)
 
     async def render(self, question: str, sql: str, df: Any) -> dict:
         """
-        Render output: detect chart type + generate NL summary.
+        Render output: detect chart type + generate config + NL summary.
 
-        Returns dict: {chart_type, chart_config, summary}
+        Args:
+            question: User question.
+            sql: Executed SQL.
+            df: Result DataFrame (already executed).
+
+        Returns:
+            {
+                "chart_type": "BAR",
+                "chart_config": {...},
+                "summary": "Your revenue increased by 15%...",
+            }
         """
-        import asyncio
+        row_count = len(df) if df is not None else 0
 
-        row_count = len(df)
+        if df is None or row_count == 0:
+            return {
+                "chart_type": "TABLE",
+                "chart_config": {"type": "TABLE", "title": "No data"},
+                "summary": "The query returned no results.",
+            }
+
+        # Build metadata for chart detection
         column_info = ", ".join(f"{col} ({df[col].dtype})" for col in df.columns)
-        column_names = ", ".join(df.columns.tolist())
-
-        # Sample summary (first 3 rows, sanitized)
         sample_df = df.head(3)
         sample_summary = sample_df.to_string(index=False, max_colwidth=30)
 
-        # Numeric summaries
-        numeric_cols = df.select_dtypes(include=["number"])
-        numeric_summaries = ""
-        if not numeric_cols.empty:
-            summaries = []
-            for col in numeric_cols.columns:
-                summaries.append(
-                    f"{col}: min={numeric_cols[col].min()}, "
-                    f"max={numeric_cols[col].max()}, "
-                    f"mean={numeric_cols[col].mean():.2f}"
-                )
-            numeric_summaries = "; ".join(summaries)
-
-        # Run chart detection and summary in parallel
-        chart_task = self._detect_chart(sql, column_info, row_count, sample_summary)
-        summary_task = self._generate_summary(
-            question, sql, row_count, column_names, numeric_summaries,
+        # Run chart detection and NL summary in parallel
+        chart_result, summary = await asyncio.gather(
+            self.chart_detector.detect(sql, column_info, row_count, sample_summary),
+            self.nl_summarizer.summarize(question, sql, df),
         )
 
-        chart_result, summary = await asyncio.gather(chart_task, summary_task)
+        # Generate chart config
+        chart_config = await self.chart_generator.generate(
+            chart_type=chart_result.get("type", "TABLE"),
+            df=df,
+            x_axis=chart_result.get("x_axis"),
+            y_axis=chart_result.get("y_axis"),
+            title=chart_result.get("title", ""),
+        )
 
         return {
             "chart_type": chart_result.get("type", "TABLE"),
-            "chart_config": chart_result,
+            "chart_config": chart_config,
             "summary": summary,
         }
 
-    async def _detect_chart(
-        self,
-        sql: str,
-        column_info: str,
-        row_count: int,
-        sample_summary: str,
-    ) -> dict:
-        """Detect best chart type for results."""
-        prompt = (
-            self._chart_prompt
-            .replace("{sql}", sql)
-            .replace("{column_info}", column_info)
-            .replace("{row_count}", str(row_count))
-            .replace("{sample_summary}", sample_summary)
-        )
+    async def execute_and_render(self, question: str, sql: str) -> dict:
+        """
+        Execute SQL and render results in one call.
 
-        response = await self.openai.complete(prompt=prompt, stage_name="out_chart")
+        Used when the pipeline delegates execution to Stage 7.
+        """
+        if not self.executor:
+            return {
+                "chart_type": "TABLE",
+                "chart_config": {},
+                "summary": "No Trino executor configured.",
+                "df": None,
+                "row_count": 0,
+            }
 
-        # Parse response
-        result = {"type": "TABLE", "x_axis": None, "y_axis": None, "title": ""}
-        for line in response.strip().split("\n"):
-            line = line.strip()
-            if line.startswith("CHART_TYPE:"):
-                result["type"] = line.split(":", 1)[1].strip()
-            elif line.startswith("X_AXIS:"):
-                val = line.split(":", 1)[1].strip()
-                result["x_axis"] = None if val.upper() == "NONE" else val
-            elif line.startswith("Y_AXIS:"):
-                val = line.split(":", 1)[1].strip()
-                result["y_axis"] = None if val.upper() == "NONE" else val
-            elif line.startswith("TITLE:"):
-                result["title"] = line.split(":", 1)[1].strip()
+        exec_result = await self.executor.execute(sql)
+        df = exec_result.get("df")
+        row_count = exec_result.get("row_count", 0)
 
-        return result
-
-    async def _generate_summary(
-        self,
-        question: str,
-        sql: str,
-        row_count: int,
-        column_names: str,
-        numeric_summaries: str,
-    ) -> str:
-        """Generate NL summary of query results."""
-        prompt = (
-            self._summary_prompt
-            .replace("{user_question}", question)
-            .replace("{sql}", sql)
-            .replace("{row_count}", str(row_count))
-            .replace("{column_names}", column_names)
-            .replace("{numeric_summaries}", numeric_summaries or "No numeric columns")
-        )
-
-        response = await self.openai.complete(prompt=prompt, stage_name="out_summary")
-        return response.strip()
+        render_result = await self.render(question, sql, df)
+        render_result["df"] = df
+        render_result["row_count"] = row_count
+        render_result["execution_error"] = exec_result.get("error", "")
+        return render_result

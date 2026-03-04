@@ -1,0 +1,402 @@
+[
+  {
+    "id": 1,
+    "question": "What was total revenue last month?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*SUM.*revenue.*FROM.*gold\\.finance\\.orders.*WHERE.*date",
+    "category": "aggregation"
+  },
+  {
+    "id": 2,
+    "question": "How many active customers do we have?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.crm.customers"],
+    "expected_sql_pattern": "SELECT.*COUNT.*FROM.*gold\\.crm\\.customers.*WHERE.*status.*active",
+    "category": "aggregation"
+  },
+  {
+    "id": 3,
+    "question": "Show me the top 10 products by sales volume",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.sales.order_items", "gold.product.products"],
+    "expected_sql_pattern": "SELECT.*product.*SUM.*FROM.*JOIN.*ORDER BY.*DESC.*LIMIT 10",
+    "category": "ranking"
+  },
+  {
+    "id": 4,
+    "question": "What is the average order value by region?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.finance.orders", "gold.geo.regions"],
+    "expected_sql_pattern": "SELECT.*region.*AVG.*FROM.*JOIN.*GROUP BY",
+    "category": "aggregation"
+  },
+  {
+    "id": 5,
+    "question": "List all orders placed today",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*FROM.*gold\\.finance\\.orders.*WHERE.*CURRENT_DATE",
+    "category": "filter"
+  },
+  {
+    "id": 6,
+    "question": "What is the month-over-month revenue growth rate for the last 12 months?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "WITH.*LAG.*OVER.*ORDER BY.*month",
+    "category": "time_series"
+  },
+  {
+    "id": 7,
+    "question": "Which customers have churned in the last 90 days and what was their lifetime value?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.crm.customers", "gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*customer.*SUM.*WHERE.*status.*churn.*GROUP BY",
+    "category": "multi_table"
+  },
+  {
+    "id": 8,
+    "question": "Show the customer retention cohort analysis by signup month",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.crm.customers", "gold.finance.orders"],
+    "expected_sql_pattern": "WITH.*cohort.*DATE_TRUNC.*GROUP BY",
+    "category": "cohort"
+  },
+  {
+    "id": 9,
+    "question": "What is our inventory turnover ratio by warehouse?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.inventory.stock_levels", "gold.inventory.warehouses"],
+    "expected_sql_pattern": "SELECT.*warehouse.*SUM.*NULLIF.*FROM.*JOIN.*GROUP BY",
+    "category": "ratio"
+  },
+  {
+    "id": 10,
+    "question": "Calculate the 7-day rolling average of daily active users",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.analytics.user_events"],
+    "expected_sql_pattern": "AVG.*OVER.*ROWS BETWEEN.*PRECEDING.*CURRENT ROW",
+    "category": "window_function"
+  },
+  {
+    "id": 11,
+    "question": "What percentage of orders were returned last quarter?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.finance.orders", "gold.finance.returns"],
+    "expected_sql_pattern": "SELECT.*COUNT.*CASE.*WHEN.*return.*NULLIF.*100",
+    "category": "percentage"
+  },
+  {
+    "id": 12,
+    "question": "Show revenue by product category for Q3 2024",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.finance.orders", "gold.product.categories"],
+    "expected_sql_pattern": "SELECT.*category.*SUM.*revenue.*WHERE.*2024.*GROUP BY",
+    "category": "aggregation"
+  },
+  {
+    "id": 13,
+    "question": "Find customers who placed orders in the last 30 days but not in the previous 60 days",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.crm.customers", "gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*WHERE.*EXISTS.*NOT EXISTS|EXCEPT|LEFT JOIN.*IS NULL",
+    "category": "set_operation"
+  },
+  {
+    "id": 14,
+    "question": "What is the average time between first and second order per customer?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "ROW_NUMBER.*OVER.*PARTITION BY.*customer.*ORDER BY.*date",
+    "category": "window_function"
+  },
+  {
+    "id": 15,
+    "question": "Show the distribution of order values in $50 buckets",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "FLOOR.*50.*COUNT.*GROUP BY.*ORDER BY",
+    "category": "histogram"
+  },
+  {
+    "id": 16,
+    "question": "Which sales reps exceeded their quarterly targets?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.sales.reps", "gold.sales.targets", "gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*rep.*SUM.*target.*WHERE.*HAVING|WHERE.*>",
+    "category": "multi_table"
+  },
+  {
+    "id": 17,
+    "question": "What are the top 5 fastest growing product categories year over year?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders", "gold.product.categories"],
+    "expected_sql_pattern": "WITH.*year.*LAG.*OVER.*ORDER BY.*growth.*DESC.*LIMIT 5",
+    "category": "time_series"
+  },
+  {
+    "id": 18,
+    "question": "Show daily new signups for the last 30 days",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.crm.customers"],
+    "expected_sql_pattern": "SELECT.*DATE.*COUNT.*WHERE.*created_at.*GROUP BY.*ORDER BY",
+    "category": "time_series"
+  },
+  {
+    "id": 19,
+    "question": "What is the customer acquisition cost by marketing channel?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.marketing.campaigns", "gold.marketing.spend", "gold.crm.customers"],
+    "expected_sql_pattern": "SELECT.*channel.*SUM.*spend.*COUNT.*customer.*GROUP BY",
+    "category": "ratio"
+  },
+  {
+    "id": 20,
+    "question": "List the top 20 customers by total lifetime spend",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.crm.customers", "gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*customer.*SUM.*FROM.*JOIN.*GROUP BY.*ORDER BY.*DESC.*LIMIT 20",
+    "category": "ranking"
+  },
+  {
+    "id": 21,
+    "question": "What is the conversion rate from cart to purchase by device type?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.analytics.user_events", "gold.analytics.sessions"],
+    "expected_sql_pattern": "SELECT.*device.*COUNT.*CASE.*WHEN.*purchase.*NULLIF",
+    "category": "funnel"
+  },
+  {
+    "id": 22,
+    "question": "Show the median order value by customer segment",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders", "gold.crm.customer_segments"],
+    "expected_sql_pattern": "APPROX_PERCENTILE.*0\\.5|PERCENTILE_CONT|median",
+    "category": "statistics"
+  },
+  {
+    "id": 23,
+    "question": "How many support tickets were created this week?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.support.tickets"],
+    "expected_sql_pattern": "SELECT.*COUNT.*FROM.*gold\\.support\\.tickets.*WHERE.*CURRENT_DATE",
+    "category": "aggregation"
+  },
+  {
+    "id": 24,
+    "question": "What is the average resolution time for support tickets by priority?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.support.tickets"],
+    "expected_sql_pattern": "SELECT.*priority.*AVG.*DATE_DIFF|TIMESTAMP_DIFF.*GROUP BY",
+    "category": "aggregation"
+  },
+  {
+    "id": 25,
+    "question": "Show the Pareto chart of revenue by customer (what % of customers drive 80% of revenue)",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.crm.customers", "gold.finance.orders"],
+    "expected_sql_pattern": "SUM.*OVER.*ORDER BY.*DESC.*ROWS BETWEEN.*UNBOUNDED",
+    "category": "window_function"
+  },
+  {
+    "id": 26,
+    "question": "What is our gross margin by product line for the current fiscal year?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders", "gold.product.products", "gold.finance.costs"],
+    "expected_sql_pattern": "SELECT.*product.*SUM.*revenue.*SUM.*cost.*margin.*GROUP BY",
+    "category": "multi_table"
+  },
+  {
+    "id": 27,
+    "question": "Show the number of orders by status",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*status.*COUNT.*FROM.*gold\\.finance\\.orders.*GROUP BY",
+    "category": "aggregation"
+  },
+  {
+    "id": 28,
+    "question": "Which suppliers have the longest average lead times?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.procurement.suppliers", "gold.procurement.purchase_orders"],
+    "expected_sql_pattern": "SELECT.*supplier.*AVG.*lead_time|DATE_DIFF.*ORDER BY.*DESC",
+    "category": "ranking"
+  },
+  {
+    "id": 29,
+    "question": "Calculate the year-to-date revenue compared to the same period last year",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "WITH.*current_year.*previous_year.*SUM.*revenue.*WHERE.*YEAR",
+    "category": "time_series"
+  },
+  {
+    "id": 30,
+    "question": "What are the most common product combinations purchased together?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.sales.order_items"],
+    "expected_sql_pattern": "SELECT.*product.*COUNT.*FROM.*JOIN.*GROUP BY.*ORDER BY.*DESC",
+    "category": "market_basket"
+  },
+  {
+    "id": 31,
+    "question": "Show the error rate trend for our API endpoints over the last 7 days",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.engineering.api_logs"],
+    "expected_sql_pattern": "SELECT.*endpoint.*DATE.*COUNT.*CASE.*error.*GROUP BY",
+    "category": "time_series"
+  },
+  {
+    "id": 32,
+    "question": "What is the net promoter score by customer segment?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.crm.survey_responses", "gold.crm.customer_segments"],
+    "expected_sql_pattern": "SELECT.*segment.*SUM.*CASE.*WHEN.*score.*NULLIF.*GROUP BY",
+    "category": "metric"
+  },
+  {
+    "id": 33,
+    "question": "List warehouses with stock below reorder threshold",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.inventory.stock_levels", "gold.inventory.warehouses"],
+    "expected_sql_pattern": "SELECT.*warehouse.*WHERE.*quantity.*<.*reorder",
+    "category": "filter"
+  },
+  {
+    "id": 34,
+    "question": "Show the top 10 pages by bounce rate this month",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.analytics.page_views", "gold.analytics.sessions"],
+    "expected_sql_pattern": "SELECT.*page.*COUNT.*bounce.*NULLIF.*ORDER BY.*DESC.*LIMIT 10",
+    "category": "ranking"
+  },
+  {
+    "id": 35,
+    "question": "What is the average basket size by day of week?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*DOW|DAY_OF_WEEK.*AVG.*items.*GROUP BY.*ORDER BY",
+    "category": "aggregation"
+  },
+  {
+    "id": 36,
+    "question": "Find all product SKUs with zero sales in the last 90 days",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.product.products", "gold.sales.order_items"],
+    "expected_sql_pattern": "SELECT.*product.*WHERE.*NOT EXISTS|LEFT JOIN.*IS NULL",
+    "category": "set_operation"
+  },
+  {
+    "id": 37,
+    "question": "What is the employee attrition rate by department over the last year?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.hr.employees", "gold.hr.departments"],
+    "expected_sql_pattern": "SELECT.*department.*COUNT.*CASE.*terminated.*NULLIF.*GROUP BY",
+    "category": "ratio"
+  },
+  {
+    "id": 38,
+    "question": "Show cumulative revenue growth for the current quarter",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "SUM.*OVER.*ORDER BY.*date.*ROWS BETWEEN.*UNBOUNDED PRECEDING",
+    "category": "window_function"
+  },
+  {
+    "id": 39,
+    "question": "What is the P95 response time for API calls today?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.engineering.api_logs"],
+    "expected_sql_pattern": "APPROX_PERCENTILE.*0\\.95|PERCENTILE_CONT",
+    "category": "statistics"
+  },
+  {
+    "id": 40,
+    "question": "Compare subscription plan revenue across monthly, quarterly, and annual plans",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.billing.subscriptions", "gold.finance.payments"],
+    "expected_sql_pattern": "SELECT.*plan.*SUM.*revenue.*GROUP BY.*plan",
+    "category": "comparison"
+  },
+  {
+    "id": 41,
+    "question": "Show the geographic distribution of our customer base",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.crm.customers", "gold.geo.regions"],
+    "expected_sql_pattern": "SELECT.*country|region.*COUNT.*FROM.*GROUP BY.*ORDER BY",
+    "category": "aggregation"
+  },
+  {
+    "id": 42,
+    "question": "What is the average number of touchpoints before a customer converts?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.marketing.touchpoints", "gold.crm.customers"],
+    "expected_sql_pattern": "SELECT.*AVG.*COUNT.*FROM.*WHERE.*converted.*GROUP BY",
+    "category": "funnel"
+  },
+  {
+    "id": 43,
+    "question": "Show the ratio of new vs returning customers by month",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.crm.customers", "gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*month.*SUM.*CASE.*WHEN.*first_order.*new.*returning",
+    "category": "ratio"
+  },
+  {
+    "id": 44,
+    "question": "What are the peak ordering hours by day of week?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*DOW|DAY_OF_WEEK.*HOUR.*COUNT.*GROUP BY.*ORDER BY",
+    "category": "time_series"
+  },
+  {
+    "id": 45,
+    "question": "Show total headcount by department",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["gold.hr.employees", "gold.hr.departments"],
+    "expected_sql_pattern": "SELECT.*department.*COUNT.*FROM.*JOIN.*GROUP BY",
+    "category": "aggregation"
+  },
+  {
+    "id": 46,
+    "question": "What is the correlation between marketing spend and revenue by channel?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.marketing.spend", "gold.finance.orders"],
+    "expected_sql_pattern": "SELECT.*channel.*SUM.*spend.*SUM.*revenue.*CORR|correlation",
+    "category": "statistics"
+  },
+  {
+    "id": 47,
+    "question": "Find duplicate customer records based on email",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.crm.customers"],
+    "expected_sql_pattern": "SELECT.*email.*COUNT.*FROM.*GROUP BY.*HAVING.*COUNT.*>.*1",
+    "category": "data_quality"
+  },
+  {
+    "id": 48,
+    "question": "What is the fill rate for purchase orders this month?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.procurement.purchase_orders", "gold.procurement.deliveries"],
+    "expected_sql_pattern": "SELECT.*SUM.*delivered.*NULLIF.*SUM.*ordered.*100",
+    "category": "ratio"
+  },
+  {
+    "id": 49,
+    "question": "Show the ABC classification of products by revenue contribution",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.product.products", "gold.finance.orders"],
+    "expected_sql_pattern": "WITH.*SUM.*OVER.*ORDER BY.*DESC.*CASE.*WHEN.*cumulative.*80",
+    "category": "classification"
+  },
+  {
+    "id": 50,
+    "question": "What is our current runway based on monthly burn rate?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["gold.finance.transactions", "gold.finance.accounts"],
+    "expected_sql_pattern": "SELECT.*balance.*AVG.*monthly.*burn.*runway",
+    "category": "metric"
+  }
+]

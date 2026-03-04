@@ -1507,7 +1507,7 @@ embeddings:
     - POST /api/admin/refresh — trigger preprocessing refresh
 [ ] web/routes/ — route handlers
 [ ] web/middleware/ — auth (basic initially), rate limiter
-[ ] web/ui/ — React frontend
+[ ] web/ui/ — React frontend (simillar to claude) (animation should be simillar to claude)
     - Question input (text box + send button)
     - SQL display (syntax highlighted, editable, copy)
     - Data table (paginated, sortable, CSV download)
