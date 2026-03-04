@@ -1,6 +1,6 @@
 # Text-to-SQL Project — Conversation Memory
 
-## Last Updated: March 5, 2026
+## Last Updated: March 6, 2026
 
 ---
 
@@ -279,3 +279,68 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 | User's Research (Error Taxonomy + Cortex YAML) | `/mnt/user-data/uploads/SQL-of-Thought_Error_Taxonomy_and_Snowflake_Cortex_Analyst_YAML.pdf` |
 | Conversation Transcript | `/mnt/transcripts/2026-03-04-08-04-36-chess-text-to-sql-implementation-plan.txt` |
 | Previous Session Transcript | `/mnt/transcripts/2026-03-03-07-23-27-text-to-sql-trino-research-consultation.txt` |
+
+---
+
+## Real Infrastructure Connections
+
+| Component | Endpoint | Status |
+|---|---|---|
+| Azure OpenAI Chat | apim-aiguru-gpt4.azure-api.net (gpt4o) | Connected |
+| Azure OpenAI Embed | eastusalakhai.openai.azure.com (embedlarge, 3072-dim) | Connected |
+| Trino | trino-prod-replica-3.penpencil.co:443 | Connected |
+| pgvector | RDS antondb (PostgreSQL 14.17, pgvector 0.8.0) | Connected |
+
+---
+
+## Preprocessing Results (Real Data)
+
+| Stage | Output | Count |
+|---|---|---|
+| extract_dbt_metadata | schema_catalog.json + lineage | 2,399 tables, 2,273 lineage nodes, 2,377 edges |
+| enrich_schema_catalog | Trino columns → schema_catalog.json | 72,826 columns across 2,109 tables |
+| extract_metabase_questions | metabase_questions.json | 7,213 Q-SQL pairs, 1,253 JOIN patterns |
+| build_table_graph | table_graph.gpickle | 3,025 nodes, 3,339 edges |
+| build_content_awareness | content_awareness.json | 391 tables, 12,257 column entries |
+| ingest_documentation | doc_chunks.json | 76 chunks |
+| load_embeddings | pgvector tables | schema: 2,399 / question: 7,213 / doc: 76 |
+
+**Not run:** build_lsh_index (needs Trino column value sampling), build_glossary (empty semantic_model.yaml)
+
+---
+
+## pgvector Limitations
+
+- **PostgreSQL 14.17, pgvector 0.8.0**: Both IVFFlat and HNSW indexes limited to ≤2000 dimensions
+- Our embeddings are 3072-dim → **no vector indexes possible**
+- Using sequential scan: ~5s per search across 2,399 rows (acceptable for <10K rows)
+- **Future options:** Upgrade pgvector to ≥0.9.0, or use `dimensions=2000` param in OpenAI API (requires re-embedding)
+
+---
+
+## E2E Test Results (March 6, 2026)
+
+**6/6 questions pass (100%)** — commit c500deb
+
+| # | Question | Complexity | Rows | Time | Result |
+|---|---|---|---|---|---|
+| Q0 | How many active batches? | SIMPLE | 1 | 82s | 1,191,784 active batches |
+| Q1 | Students who completed all lectures in Dec 2025 | SIMPLE | 1 | 48s | 0 (no completions found) |
+| Q2 | Total revenue all time | SIMPLE | 1 | 52s | ~8.83 billion |
+| Q3 | Top 10 batches by student count | COMPLEX | 10 | 52s | Top batch ~3M students |
+| Q4 | Average lectures per batch (active) | COMPLEX | 1 | 47s | 275.33 avg lectures/batch |
+| Q5 | Top 10 faculty by lecture count | COMPLEX | 10 | 85s | Top faculty: 21,519 lectures |
+
+**Totals:** 365s runtime, $1.71 cost, avg 61s/query
+
+---
+
+## Git History
+
+| Commit | Message |
+|---|---|
+| c500deb | feat: preprocessing + embedding + bug fixes + E2E 6/6 |
+| 8cf9e84 | Connect to real infrastructure: Azure OpenAI + Trino + pgvector |
+| fd548cf | Phase 2 Week 5: Web service + React UI + Docker + K8s |
+| 120748b | Phase 2 Week 4: Extended test set to 100 questions |
+| 63fbe72 | Phase 1 Weeks 1-3: Core pipeline |
