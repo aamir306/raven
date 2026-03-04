@@ -1,0 +1,62 @@
+# Dependencies
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+.venv/
+venv/
+ENV/
+
+# Distribution
+build/
+dist/
+*.egg-info/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Generated data artifacts (rebuild with preprocessing/refresh_all.py)
+data/*.json
+data/*.pkl
+data/*.gpickle
+data/*.pickle
+
+# Logs
+logs/
+*.log
+
+# Docker
+docker-compose.override.yml
+
+# Node (web UI)
+web/node_modules/
+web/dist/
+web/build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# pytest
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# mypy
+.mypy_cache/

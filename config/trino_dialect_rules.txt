@@ -1,0 +1,22 @@
+TRINO SQL RULES — FOLLOW EXACTLY:
+
+1.  Use TRY_CAST(x AS type) instead of CAST — prevents query failure on bad data
+2.  Use approx_distinct(col) instead of COUNT(DISTINCT col) for tables > 1M rows
+3.  Date arithmetic: DATE_ADD('day', -30, CURRENT_DATE) — NOT CURRENT_DATE - 30
+4.  Intervals: INTERVAL '30' DAY — number MUST be quoted string
+5.  Time travel: FOR TIMESTAMP AS OF TIMESTAMP '2025-01-01 00:00:00'
+6.  ALWAYS include partition columns (ds, dt, date) in WHERE clause
+7.  Use WITH (CTE names) for multi-step queries — never nested subqueries > 2 levels
+8.  String comparison is case-sensitive — use lower(col) = lower(value) if unsure
+9.  Array operations: CROSS JOIN UNNEST(array_col) AS t(element)
+10. Approximate functions: approx_percentile(col, 0.5), approx_most_frequent(col, k, capacity)
+11. No IFNULL in Trino — use COALESCE(col, default)
+12. Timestamps: TIMESTAMP '2025-01-01 00:00:00' — not string comparison
+13. LIMIT goes AFTER ORDER BY — never before
+14. Boolean columns: use col = true, not col = 1
+15. DATE_TRUNC('week', ts) for weekly aggregation — first argument is a string
+16. Use DOUBLE instead of FLOAT for floating-point types
+17. String concatenation: use || operator or CONCAT(), not + operator
+18. NULL comparison: use IS NULL / IS NOT NULL, never = NULL or != NULL
+19. DISTINCT ON is not supported — use ROW_NUMBER() OVER (...) instead
+20. CURRENT_DATE and CURRENT_TIMESTAMP are keywords — no parentheses needed

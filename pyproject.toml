@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "raven-sql"
+version = "0.1.0"
+description = "RAVEN — Retrieval-Augmented Validated Engine for Natural-language SQL"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.11"
+authors = [
+    {name = "RAVEN Contributors"}
+]
+keywords = ["text-to-sql", "trino", "natural-language", "sql-generation", "rag"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "pydantic>=2.5.0",
+    "trino>=0.327.0",
+    "openai>=1.12.0",
+    "tiktoken>=0.6.0",
+    "pgvector>=0.2.4",
+    "psycopg2-binary>=2.9.9",
+    "numpy>=1.26.0",
+    "datasketch>=1.6.0",
+    "networkx>=3.2.0",
+    "pandas>=2.2.0",
+    "sqlparse>=0.4.4",
+    "plotly>=5.18.0",
+    "aiohttp>=3.9.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0.1",
+    "structlog>=24.1.0",
+    "prometheus-client>=0.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/aamirpw306/raven"
+Repository = "https://github.com/aamirpw306/raven"
+Documentation = "https://github.com/aamirpw306/raven/tree/main/docs"
+Issues = "https://github.com/aamirpw306/raven/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
