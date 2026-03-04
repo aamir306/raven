@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: raven-config
+  namespace: raven
+  labels:
+    app: raven
+data:
+  TRINO_HOST: "trino.trino.svc.cluster.local"
+  TRINO_PORT: "443"
+  TRINO_CATALOG: "iceberg"
+  TRINO_SCHEMA: "gold"
+  PGVECTOR_HOST: "pgvector.raven.svc.cluster.local"
+  PGVECTOR_PORT: "5432"
+  PGVECTOR_DB: "raven"
+  RAVEN_LOG_LEVEL: "INFO"
+  RAVEN_RATE_LIMIT_RPM: "60"
+  RAVEN_CORS_ORIGINS: "*"

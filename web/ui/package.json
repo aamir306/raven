@@ -1,0 +1,22 @@
+{
+  "name": "raven-ui",
+  "version": "0.2.0",
+  "private": true,
+  "description": "RAVEN — Text-to-SQL Frontend",
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "react-syntax-highlighter": "^15.5.0"
+  },
+  "proxy": "http://localhost:8000",
+  "browserslist": {
+    "production": [">0.2%", "not dead", "not op_mini all"],
+    "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
+  }
+}

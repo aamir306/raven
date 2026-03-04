@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: raven-api
+  namespace: raven
+  labels:
+    app: raven
+    component: api
+spec:
+  type: ClusterIP
+  selector:
+    app: raven
+    component: api
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: raven-ui
+  namespace: raven
+  labels:
+    app: raven
+    component: ui
+spec:
+  type: ClusterIP
+  selector:
+    app: raven
+    component: ui
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgvector
+  namespace: raven
+  labels:
+    app: raven
+    component: pgvector
+spec:
+  type: ClusterIP
+  selector:
+    app: raven
+    component: pgvector
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres

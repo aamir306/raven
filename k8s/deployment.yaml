@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raven-api
+  namespace: raven
+  labels:
+    app: raven
+    component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: raven
+      component: api
+  template:
+    metadata:
+      labels:
+        app: raven
+        component: api
+    spec:
+      containers:
+        - name: raven-api
+          image: raven-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: raven-config
+            - secretRef:
+                name: raven-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raven-ui
+  namespace: raven
+  labels:
+    app: raven
+    component: ui
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: raven
+      component: ui
+  template:
+    metadata:
+      labels:
+        app: raven
+        component: ui
+    spec:
+      containers:
+        - name: raven-ui
+          image: raven-ui:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 30
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgvector
+  namespace: raven
+  labels:
+    app: raven
+    component: pgvector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: raven
+      component: pgvector
+  template:
+    metadata:
+      labels:
+        app: raven
+        component: pgvector
+    spec:
+      containers:
+        - name: pgvector
+          image: pgvector/pgvector:pg16
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: raven
+            - name: POSTGRES_USER
+              value: raven
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: raven-secrets
+                  key: PGVECTOR_PASSWORD
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: pgdata
+          persistentVolumeClaim:
+            claimName: pgvector-pvc

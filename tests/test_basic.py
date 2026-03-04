@@ -228,21 +228,21 @@ class TestAPIModels:
     """Test Pydantic model validation."""
 
     def test_query_request_valid(self):
-        from src.raven.api import QueryRequest
+        from web.routes import QueryRequest
         req = QueryRequest(question="How many users?")
         assert req.question == "How many users?"
 
     def test_query_request_empty_rejected(self):
-        from src.raven.api import QueryRequest
+        from web.routes import QueryRequest
         with pytest.raises(Exception):
             QueryRequest(question="")
 
     def test_feedback_request_valid(self):
-        from src.raven.api import FeedbackRequest
+        from web.routes import FeedbackRequest
         req = FeedbackRequest(query_id="abc-123", feedback="thumbs_up")
         assert req.feedback == "thumbs_up"
 
     def test_feedback_request_invalid_type(self):
-        from src.raven.api import FeedbackRequest
+        from web.routes import FeedbackRequest
         with pytest.raises(Exception):
             FeedbackRequest(query_id="abc", feedback="invalid")

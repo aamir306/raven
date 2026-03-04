@@ -51,12 +51,29 @@ services:
       # RAVEN config
       RAVEN_LOG_LEVEL: ${RAVEN_LOG_LEVEL:-INFO}
       RAVEN_MAX_RETRIES: ${RAVEN_MAX_RETRIES:-2}
+      RAVEN_API_KEY: ${RAVEN_API_KEY:-}
+      RAVEN_RATE_LIMIT_RPM: ${RAVEN_RATE_LIMIT_RPM:-60}
+      RAVEN_CORS_ORIGINS: ${RAVEN_CORS_ORIGINS:-http://localhost:3000,http://localhost:8000}
     ports:
       - "8000:8000"
     volumes:
       - ./config:/app/config:ro
       - ./prompts:/app/prompts:ro
       - ./data:/app/data
+    restart: unless-stopped
+
+  # ── RAVEN UI (React frontend) ───────────────────────────────────────
+  ui:
+    build:
+      context: ./web/ui
+      dockerfile: Dockerfile
+    container_name: raven-ui
+    depends_on:
+      - raven
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+    ports:
+      - "3000:80"
     restart: unless-stopped
 
 volumes:

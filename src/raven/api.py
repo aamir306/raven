@@ -2,6 +2,7 @@
 RAVEN — FastAPI Application
 ============================
 REST API for the text-to-SQL pipeline.
+Includes modular routes, middleware, and admin endpoints.
 """
 
 from __future__ import annotations
@@ -12,7 +13,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from .connectors.openai_client import OpenAIClient
 from .connectors.pgvector_store import PgVectorStore
@@ -58,101 +60,58 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="RAVEN",
     description="Retrieval-Augmented Validated Engine for Natural-language SQL",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
+# ── Middleware (order matters: last added = first executed) ────────────
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.getenv("RAVEN_CORS_ORIGINS", "*").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-# ── Request / Response Models ─────────────────────────────────────────
-
-
-class QueryRequest(BaseModel):
-    question: str = Field(..., min_length=1, max_length=2000, description="Natural language question")
-    conversation_id: str | None = Field(None, description="Optional conversation ID for context")
-
-
-class QueryResponse(BaseModel):
-    status: str
-    question: str
-    sql: str = ""
-    data: list[dict] = []
-    row_count: int = 0
-    chart_type: str = "TABLE"
-    chart_config: dict = {}
-    summary: str = ""
-    confidence: str = "LOW"
-    difficulty: str = "unknown"
-    timings: dict = {}
-    cost: float = 0.0
-    message: str = ""
-    error: str = ""
+try:
+    from web.middleware import BasicAuthMiddleware, RateLimitMiddleware, RequestTimingMiddleware
+    app.add_middleware(RequestTimingMiddleware)
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(BasicAuthMiddleware)
+    logger.info("Middleware loaded: auth, rate-limit, timing")
+except ImportError:
+    logger.warning("web.middleware not found — running without custom middleware")
 
 
-class FeedbackRequest(BaseModel):
-    query_id: str
-    feedback: str = Field(..., pattern="^(thumbs_up|thumbs_down)$")
-    correction_sql: str | None = None
-    correction_notes: str | None = None
+# ── Routers ───────────────────────────────────────────────────────────
+
+try:
+    from web.routes import query_router, admin_router, metrics_router
+    app.include_router(query_router)
+    app.include_router(admin_router)
+    app.include_router(metrics_router)
+    logger.info("Routers loaded: query, admin, metrics")
+except ImportError:
+    logger.warning("web.routes not found — using inline routes only")
 
 
-class FeedbackResponse(BaseModel):
-    query_id: str
-    feedback: str
-    action: str
+# ── Static UI (serve React build if available) ────────────────────────
+
+UI_DIR = Path("web/ui/build")
+if UI_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────
+# ── Core Endpoints (always available) ─────────────────────────────────
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "raven"}
-
-
-@app.post("/api/query", response_model=QueryResponse)
-async def query(request: QueryRequest):
-    """Submit a natural language question to the text-to-SQL pipeline."""
-    if _pipeline is None:
-        raise HTTPException(status_code=503, detail="Pipeline not initialized")
-
-    result = await _pipeline.generate(
-        question=request.question,
-        conversation_id=request.conversation_id,
-    )
-
-    return QueryResponse(**result)
-
-
-@app.post("/api/feedback", response_model=FeedbackResponse)
-async def feedback(request: FeedbackRequest):
-    """Submit feedback for a query result."""
-    if _pipeline is None:
-        raise HTTPException(status_code=503, detail="Pipeline not initialized")
-
-    result = await _pipeline.feedback.submit_feedback(
-        query_id=request.query_id,
-        feedback=request.feedback,
-        correction_sql=request.correction_sql,
-        correction_notes=request.correction_notes,
-    )
-
-    return FeedbackResponse(**result)
-
-
-@app.get("/api/stats")
-async def stats():
-    """Get pipeline cost and performance stats."""
-    if _pipeline is None:
-        raise HTTPException(status_code=503, detail="Pipeline not initialized")
-
     return {
-        "cost_summary": _pipeline.openai.get_cost_summary(),
+        "status": "ok",
+        "service": "raven",
+        "version": "0.2.0",
+        "pipeline_ready": _pipeline is not None,
     }
+
