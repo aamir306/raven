@@ -104,7 +104,7 @@ ALL_STAGES: list[Stage] = [
         module="preprocessing.build_table_graph",
         args=[
             "--dbt-lineage", "data/dbt_lineage_graph.gpickle",
-            "--metabase-joins", "data/join_patterns.json",
+            "--metabase-joins", "data/metabase_join_patterns.json",
             "--semantic-model", "{RAVEN_SEMANTIC_MODEL}",
             "--output", "data/table_graph.gpickle",
         ],

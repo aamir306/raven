@@ -35,7 +35,7 @@ class FewShotRetriever:
         Find the most similar past (question, SQL) pairs.
 
         Args:
-            question_embedding: 1536-dim embedding of the user question.
+            question_embedding: 3072-dim embedding of the user question.
             top_k: Maximum number of results.
             min_similarity: Cosine-similarity floor.
 
@@ -61,10 +61,10 @@ class FewShotRetriever:
             sim = r.get("similarity", 0.0)
             if sim < min_similarity:
                 continue
-            meta = r.get("metadata", {})
+            meta = r.get("metadata") or {}
             results.append({
-                "question": meta.get("question_text", ""),
-                "sql": meta.get("sql_query", ""),
+                "question": r.get("question_text") or meta.get("question_text", ""),
+                "sql": r.get("sql_query") or meta.get("sql_query", ""),
                 "tables_used": meta.get("tables_used", []),
                 "similarity": sim,
             })
@@ -89,17 +89,17 @@ class FewShotRetriever:
         # pgvector metadata-filter search (if supported by store)
         raw_results = self.pgvector.search(
             table_name=EMBEDDING_TABLE,
-            query_embedding=[0.0] * 1536,  # placeholder — will be replaced by metadata filter
+            query_embedding=[0.0] * 3072,  # placeholder — metadata filter does the real filtering
             top_k=top_k,
             metadata_filter={"tables_used": table_names},
         )
 
         results: list[dict] = []
         for r in raw_results:
-            meta = r.get("metadata", {})
+            meta = r.get("metadata") or {}
             results.append({
-                "question": meta.get("question_text", ""),
-                "sql": meta.get("sql_query", ""),
+                "question": r.get("question_text") or meta.get("question_text", ""),
+                "sql": r.get("sql_query") or meta.get("sql_query", ""),
                 "tables_used": meta.get("tables_used", []),
                 "similarity": r.get("similarity", 0.0),
             })

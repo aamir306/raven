@@ -97,6 +97,39 @@ def chunk_markdown(file_path: Path) -> list[dict]:
     return chunks
 
 
+# ── Plain Text / .doc Processor ───────────────────────────────────────
+
+
+def chunk_text(file_path: Path) -> list[dict]:
+    """Split plain text file by numbered sections or paragraph blocks."""
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    chunks = []
+
+    # Try to split by numbered sections (e.g. "1. Objective", "2. Data Sources")
+    sections = re.split(r"(?=^\d+\.\s)", content, flags=re.MULTILINE)
+
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+
+        # Extract section header
+        header_match = re.match(r"^(\d+)\.\s+(.+?)$", section, re.MULTILINE)
+        header = header_match.group(2).strip() if header_match else ""
+
+        sub_chunks = _split_by_token_limit(section)
+        for i, sub in enumerate(sub_chunks):
+            suffix = f" (part {i + 1})" if len(sub_chunks) > 1 else ""
+            chunks.append(make_chunk(
+                text=sub,
+                source=str(file_path),
+                section=f"{header}{suffix}",
+                metadata={"file_type": "text"},
+            ))
+
+    return chunks
+
+
 # ── Word Document Processor ───────────────────────────────────────────
 
 
@@ -332,6 +365,8 @@ def ingest_all(
     processors = {
         ".md": chunk_markdown,
         ".docx": chunk_docx,
+        ".doc": chunk_text,
+        ".txt": chunk_text,
         ".pdf": chunk_pdf,
         ".json": chunk_openmetadata,
     }

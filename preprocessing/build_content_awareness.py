@@ -85,7 +85,7 @@ def build_content_awareness(
 
         for col in columns:
             col_name = col.get("name", "")
-            data_type = col.get("data_type", "").upper()
+            data_type = (col.get("data_type") or "").upper()
             is_partition = col.get("is_partition", False)
 
             col_meta: dict[str, Any] = {
@@ -109,7 +109,9 @@ def build_content_awareness(
             table_awareness[col_name] = col_meta
 
         if table_awareness:
-            awareness[table_name] = table_awareness
+            # Flatten to "table.column" keys for runtime ContentAwareness loader
+            for col_name, col_meta in table_awareness.items():
+                awareness[f"{table_name}.{col_name}"] = col_meta
             tables_processed += 1
 
     logger.info("Built Content Awareness for %d tables", tables_processed)

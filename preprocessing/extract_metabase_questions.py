@@ -34,6 +34,41 @@ import sqlparse
 
 logger = logging.getLogger(__name__)
 
+
+def load_from_csv(csv_path: str | Path) -> list[dict]:
+    """
+    Load Metabase questions from a CSV export (alternative to DB connection).
+
+    Expects columns: question_id, question_name, sql_query
+    (as produced by metabase_export_queries.sql Query 1).
+    """
+    import csv
+
+    # Some Metabase fields (dataset_query_json, result_metadata_json) can be huge
+    csv.field_size_limit(10_000_000)
+
+    csv_path = Path(csv_path)
+    logger.info("Loading questions from CSV: %s", csv_path)
+
+    questions = []
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            sql = row.get("sql_query", "")
+            name = row.get("question_name", "")
+            if not sql or not name or sql.strip().lower() == "nan":
+                continue
+            questions.append({
+                "card_id": row.get("question_id", ""),
+                "question_text": name.strip(),
+                "sql_query": sql.strip(),
+                "created_at": row.get("created_at", ""),
+                "updated_at": row.get("updated_at", ""),
+            })
+
+    logger.info("Loaded %d questions from CSV", len(questions))
+    return questions
+
 # SQL to extract native queries from Metabase
 METABASE_QUERY = """
 SELECT
@@ -102,6 +137,10 @@ def filter_valid_sql(questions: list[dict]) -> list[dict]:
     for q in questions:
         sql = q.get("sql_query", "")
         if not sql or not sql.strip():
+            continue
+
+        # Skip absurdly long queries (likely generated/concat artifacts)
+        if len(sql) > 50_000:
             continue
 
         try:
@@ -281,11 +320,12 @@ def save_questions(questions: list[dict], output_path: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Extract Metabase questions for RAVEN")
-    parser.add_argument("--host", required=True, help="Metabase PostgreSQL host")
+    parser.add_argument("--csv", help="Path to CSV export (alternative to DB connection)")
+    parser.add_argument("--host", help="Metabase PostgreSQL host")
     parser.add_argument("--port", type=int, default=5432)
     parser.add_argument("--database", default="metabase")
-    parser.add_argument("--user", required=True)
-    parser.add_argument("--password", required=True)
+    parser.add_argument("--user")
+    parser.add_argument("--password")
     parser.add_argument("--output-dir", default="data")
     args = parser.parse_args()
 
@@ -293,14 +333,20 @@ def main():
 
     output_dir = Path(args.output_dir)
 
-    # Fetch
-    raw_questions = fetch_metabase_questions(
-        host=args.host,
-        port=args.port,
-        database=args.database,
-        user=args.user,
-        password=args.password,
-    )
+    # Fetch — from CSV or database
+    if args.csv:
+        raw_questions = load_from_csv(args.csv)
+    elif args.host and args.user and args.password:
+        raw_questions = fetch_metabase_questions(
+            host=args.host,
+            port=args.port,
+            database=args.database,
+            user=args.user,
+            password=args.password,
+        )
+    else:
+        logger.error("Provide either --csv or --host/--user/--password")
+        sys.exit(1)
 
     # Process
     valid = filter_valid_sql(raw_questions)

@@ -36,7 +36,7 @@ class GlossaryRetriever:
         Find glossary entries matching the user question semantics.
 
         Args:
-            question_embedding: 1536-dim embedding of the user question.
+            question_embedding: 3072-dim embedding of the user question.
             metrics: Metric names extracted by KeywordExtractor (boost scoring).
             top_k: Maximum number of results.
             min_similarity: Cosine-similarity floor.
@@ -64,12 +64,12 @@ class GlossaryRetriever:
             sim = r.get("similarity", 0.0)
             if sim < min_similarity:
                 continue
-            meta = r.get("metadata", {})
+            meta = r.get("metadata") or {}
             results.append({
-                "term": meta.get("term", ""),
-                "definition": meta.get("definition", ""),
-                "sql_fragment": meta.get("sql_fragment", ""),
-                "synonyms": meta.get("synonyms", []),
+                "term": r.get("term") or meta.get("term", ""),
+                "definition": r.get("definition") or meta.get("definition", ""),
+                "sql_fragment": r.get("sql_fragment") or meta.get("sql_fragment", ""),
+                "synonyms": r.get("synonyms") or meta.get("synonyms", []),
                 "similarity": sim,
             })
 

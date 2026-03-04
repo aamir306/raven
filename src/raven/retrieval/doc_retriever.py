@@ -35,7 +35,7 @@ class DocRetriever:
         Find documentation snippets related to the user question.
 
         Args:
-            question_embedding: 1536-dim embedding of the user question.
+            question_embedding: 3072-dim embedding of the user question.
             top_k: Maximum results to return.
             min_similarity: Cosine-similarity floor.
 
@@ -61,11 +61,11 @@ class DocRetriever:
             sim = r.get("similarity", 0.0)
             if sim < min_similarity:
                 continue
-            meta = r.get("metadata", {})
+            meta = r.get("metadata") or {}
             results.append({
-                "source": meta.get("source", ""),
-                "table": meta.get("table", ""),
-                "content": meta.get("content", ""),
+                "source": r.get("source_file") or meta.get("source", ""),
+                "table": r.get("table_ref") or meta.get("table", ""),
+                "content": r.get("content") or meta.get("content", ""),
                 "similarity": sim,
             })
 
@@ -85,18 +85,18 @@ class DocRetriever:
         """
         raw_results = self.pgvector.search(
             table_name=DOC_TABLE,
-            query_embedding=[0.0] * 1536,  # placeholder
+            query_embedding=[0.0] * 3072,  # placeholder — metadata filter does the real filtering
             top_k=top_k,
             metadata_filter={"table": table_names},
         )
 
         results: list[dict] = []
         for r in raw_results:
-            meta = r.get("metadata", {})
+            meta = r.get("metadata") or {}
             results.append({
-                "source": meta.get("source", ""),
-                "table": meta.get("table", ""),
-                "content": meta.get("content", ""),
+                "source": r.get("source_file") or meta.get("source", ""),
+                "table": r.get("table_ref") or meta.get("table", ""),
+                "content": r.get("content") or meta.get("content", ""),
                 "similarity": r.get("similarity", 0.0),
             })
         return results

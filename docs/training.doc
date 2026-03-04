@@ -1,0 +1,384 @@
+Faculty Utilization Query Documentation
+1. Objective
+The query aims to analyze and compare planned vs. conducted faculty lectures across multiple categories and batches. It aggregates data at the faculty × subject × batch × month level, allowing accurate measurement of planned lecture hours and counts (based on internal scheduling system) and conducted lecture hours and counts (based on actual class execution). The final dataset enables analysis of discrepancies between planned and conducted sessions. 
+2. Data Sources
+The query uses the following tables as primary data sources:
+- central.gold_schedule_planner_mappings	: Internal lecture scheduling metadata – Source for planned lectures
+- cdp_revenue.gold_batches_pw: Batch master data – Category mapping and batch information
+- cdp_revenue.gold_subjects_pw: Subject master data – Subject-level metadata
+- cdp_revenue.gold_users_pw: User/faculty master data – Mapping of teacher IDs to faculty names
+- mview.gold_dbt_lecture_batch_info: Lecture execution-level metadata – Source for conducted lectures
+- user_experience.gold_videos: Recorded video metadata – Source for recorded sessions and durations
+3. Query Structure
+The query follows a Common Table Expression (CTE) structure with three major layers:
+1. planned_agg – Aggregates planned lectures and hours.
+2. workload_agg – Aggregates conducted (actual) lectures and hours.
+3. final/xoxo – Combines both datasets and applies category leader mapping.
+4. Planned CTE (planned_agg)
+This CTE aggregates all scheduled (planned) lectures and computes total planned hours and lecture counts per faculty, subject, and batch.
+Source Tables & Joins
+- central.gold_schedule_planner_mappings: Base table for planned lecture data
+- cdp_revenue.gold_batches_pw: Maps batch details and exam categories
+- cdp_revenue.gold_subjects_pw: Maps subject names
+- cdp_revenue.gold_users_pw: Maps faculty names
+Key Columns & Logic
+• planned_hours = date_diff('minute', date, enddate) / 60.0 – Calculates total planned lecture hours.
+• lecture_month = date_trunc('month', date) – Identifies lecture month for aggregation.
+• lecture_count = count(subjectwiselecturenumber) – Number of planned lectures.
+• nexam – Normalized exam category derived from financeexamcategory via CASE mapping.
+5. Workload CTE (workload_agg)
+This CTE aggregates actual conducted lectures and computes total conducted hours and number of lectures delivered per faculty.
+- mview.gold_dbt_lecture_batch_info: Base table containing actual lecture execution data
+- user_experience.gold_videos: Provides video duration and creation timestamps
+Key Columns & Logic
+• conducted_hours = sum(video_duration) / 3600.0 – Converts duration from seconds to hours.
+• lecture_month = date_trunc('month', conduct_date) – Monthly aggregation.
+• lecture_count = count(distinct bss_id) – Total conducted lectures.
+• nexam – Normalized exam category derived from new_exam_category via CASE mapping.
+6. Final Merge (final)
+Performs a full outer join between planned_agg and workload_agg to align planned vs conducted data for each faculty-subject-batch combination.
+Join Conditions:
+
+p.nexam = w.nexam AND p.batchid = w.batch_id AND p.subject_name = w.subject AND p.teacherid = w.teacher_id AND p.enddate = w.lecture_time AND p.lecture_month = w.lecture_month.
+7. Leadership Mapping (xoxo)
+Maps each exam category (nexam) to its corresponding category leader for ownership tracking.
+- MANISH: Commerce, CA, MBA, CLAT, IIT JAM, UGC NET, CS, CSIR NET, Nursing Exams, IPMAT, CUET PG, Pharma, Design_Wallah, IELTS, CA Final, ACCA, NEET_PG, CA Offline, MBA_GMAT, BFSI, TOEFL
+- PRASHANT: SSC, Banking, WBPSC, TET, JAIIB AND CAIIB, State Exams
+- RAJAT: UPSC, BPSC, UPPSC, MPSC, Agriculture, MPPSC, Judiciary, GATE, AE/JE, OPSC
+- SANYAM: IIT-JEE, NEET, Foundation, Pre_Foundation, STATE BOARDS, Defence, Vernacular, CUET UG, Bharat Batch, Olympiad
+- ANKIT: Power Batch
+8. Key Calculations
+• Planned Hours = date_diff('minute', date, enddate) / 60.0
+• Conducted Hours = sum(video_duration) / 3600.0
+• Lecture Month = date_trunc('month', lecture_time)
+• Adjusted Hours = planned_hours + 1.0, conducted_hours + 1.0
+• Lecture Count = count(distinct lecture IDs)
+9. Output Columns
+- Leader: Category Leader assigned per nexam
+- nexam: Normalized Exam Category
+- batchid: Batch Identifier
+- subject: Subject Name
+- facultyid: Faculty Identifier
+- faculty_name: Faculty Name
+- lecture_time: Lecture Date (Planned or Conducted)
+- lecture_month: Monthly bucket for reporting
+- planned_lectures: Total planned lectures count
+- conducted_lectures: Total conducted lectures count
+- planned_hours: Planned lecture duration (in hours)
+- conducted_hours: Conducted lecture duration (in hours)
+
+Appendix A — Detailed Column Explanations
+Source Tables — Verification
+✔ central.gold_schedule_planner_mappings 
+✔ cdp_revenue.gold_batches_pw
+✔ cdp_revenue.gold_subjects_pw 
+✔ cdp_revenue.gold_users_pw 
+✔ mview.gold_dbt_lecture_batch_info 
+✔ user_experience.gold_videos 
+A. Planned CTE (planned_agg) — Inputs
+central.gold_schedule_planner_mappings (selected columns)
+Column
+Description
+_id
+Unique planner record ID (primary key).
+batchid
+Identifier of the batch to which the lecture belongs.
+batchsubjectid
+Identifier of the subject within the batch.
+subjectid
+Unique subject identifier for the scheduled lecture.
+teacherid
+Identifier of the faculty whose lecture is scheduled.
+date (Asia/Kolkata)
+Planned lecture start timestamp converted to Asia/Kolkata.
+enddate (Asia/Kolkata)
+Planned lecture end timestamp converted to Asia/Kolkata; filtered to non-null.
+chapternumber
+Chapter number covered in the lecture.
+chapterwiselecturenumber
+Lecture ordinal within the chapter.
+subjectwiselecturenumber
+Lecture ordinal within the subject; used for counting planned lectures.
+planned_hours
+Calculated as date_diff('minute', date, enddate)/60.0 (hours).
+
+
+cdp_revenue.gold_batches_pw (selected columns)
+Column
+Description
+_id
+Batch ID; joins to planner.batchid.
+financeexamcategory
+Raw exam/category; normalized to nexam via CASE mapping.
+name
+Batch display name; reported as batch_name in planned_agg.
+
+
+cdp_revenue.gold_subjects_pw (selected columns)
+Column
+Description
+_id
+Subject ID; joins to planner.subjectid.
+name
+Subject name; reported as subject_name in planned_agg.
+
+
+cdp_revenue.gold_users_pw (selected columns)
+Column
+Description
+_id
+User/faculty ID; joins to planner.teacherid.
+firstname
+Faculty first name.
+lastname
+Faculty last name.
+faculty_name
+Concatenation of firstname || ' ' || lastname.
+
+
+B. Planned CTE (planned_agg) — Outputs
+Produced columns (grouped by exam × batch × subject × faculty × month)
+Column
+Description
+nexam
+Normalized exam category derived from financeexamcategory.
+batchid
+Batch ID (from planner; also used for joins).
+batch_name
+Batch name from gold_batches_pw.name.
+subjectid
+Subject ID (from planner).
+subject_name
+Subject name from gold_subjects_pw.name.
+teacherid
+Faculty ID (from planner).
+faculty_name
+Faculty full name from gold_users_pw.
+enddate (date)
+Planned lecture calendar date (cast end timestamp to DATE).
+lecture_month
+Month bucket: date_trunc('month', cast(date as date)).
+lecture_count
+Number of planned lectures: count(subjectwiselecturenumber).
+planned_hours
+Sum of planned hours across grouped rows.
+
+
+C. Workload CTE (workload_agg) — Inputs
+mview.gold_dbt_lecture_batch_info (selected columns)
+Column
+Description
+teacher_id
+Faculty ID who conducted the lecture.
+lecture_starttime
+Actual start time of the lecture.
+lecture_endtime
+End time of the lecture.
+url
+Lecture/recording URL used for deduping & mapping to recordings.
+batch_type
+Batch type (e.g., REGULAR, E_BATCH).
+subject
+Subject taught in the lecture.
+lecture_status
+Status of the lecture (e.g., Completed , Pending).
+lecture_topic
+Topic/Title of the lecture content.
+video_duration
+Length of the lecture in seconds(non-null, >0).
+batch_id
+Batch identifier of the conducted lecture.
+new_exam_category
+Raw exam/category; normalized to nexam via CASE mapping.
+bss_id
+Unique lecture/session ID (distinct per lecture).
+lecturetype
+LIVE or recorded flag.
+faculty_name
+Faculty full name captured at execution time.
+ismultischedule
+Whether the lecture was multischeduled (affects rnk calculation).
+
+
+user_experience.gold_videos (selected columns)
+Column
+Description
+videokey
+Recording key; mapped from regexp_extract(rec_url) in main pipeline.
+createdat (Asia/Kolkata)
+Recording creation timestamp converted to Asia/Kolkata.
+duration
+Recorded duration in seconds (used when new_type = 0).
+organizationid
+Organization filter; expected to match '%189' for (PW)
+
+
+D. Workload CTE (workload_agg) — Outputs
+Produced columns (grouped by exam × batch × subject × faculty × month)
+Column
+Description
+nexam
+Normalized exam category derived from new_exam_category.
+batch_id
+Batch ID for conducted lecture.
+batch
+Batch name captured in execution table.
+subject
+Subject captured in execution table.
+teacher_id
+Faculty ID for conducted lecture.
+faculty_name
+Faculty name captured in execution table.
+lecture_time (date)
+Chosen timestamp for the lecture day (see conduct_date logic).
+lecture_month
+Month bucket: date_trunc('month', cast(conduct_date as date)).
+lecturetype
+LIVE or recorded.
+lecture_count
+Distinct count of bss_id (unique lectures).
+conducted_hours
+Sum(video_duration)/3600.0 (hours).
+conduct_date
+CASE WHEN new_type = 0 THEN createdat ELSE lecture_starttime END.
+new_type
+Flag: 0 means only recorded, >0 implies presence of LIVE sessions for the URL.
+rnk
+Row number to dedupe multischedule sessions by teacher_id + URL.
+
+
+E. Final/Enriched Outputs (final → xoxo)
+Final output columns
+Column
+Description
+Leader
+Mapped category leader based on nexam (xoxo CTE).
+nexam
+Unified normalized exam category from planned/workload.
+planned_exam
+nexam value from planned_agg when present; else NULL.
+worked_exam
+nexam value from workload_agg when present; else NULL.
+planned_batch_id
+Batch ID from planned_agg (p.batchid).
+work_batch_id
+Batch ID from workload_agg (w.batch_id).
+batchid
+COALESCE(p.batchid, w.batch_id).
+planned_batch
+Batch name from planned_agg (p.batch_name).
+work_batch
+Batch name from workload_agg (w.batch).
+batch
+COALESCE(planned_batch, work_batch).
+planned_subject
+Subject from planned_agg.
+work_subject
+Subject from workload_agg.
+subject
+COALESCE(planned_subject, work_subject).
+planned_faculty_id
+Faculty ID from planned_agg (p.teacherid).
+work_faculty_id
+Faculty ID from workload_agg (w.teacher_id).
+facultyid
+COALESCE(planned_faculty_id, work_faculty_id).
+planned_faculty
+Faculty name from planned_agg.
+work_faculty
+Faculty name from workload_agg.
+faculty_name
+COALESCE(planned_faculty, work_faculty).
+planned_date
+Planned lecture calendar date (from p.enddate::date).
+work_date
+Conducted lecture calendar date (from w.lecture_time::date).
+lecture_time
+COALESCE(planned_date, work_date).
+planned_month
+Month bucket from planned_agg.
+work_month
+Month bucket from workload_agg.
+lecture_month
+COALESCE(planned_month, work_month).
+planned_lectures
+Count of planned lectures from planned_agg.
+conducted_lectures
+Count of conducted lectures from workload_agg.
+planned_hours
+Planned hours (+1.0 adjustment).
+conducted_hours
+Conducted hours (+1.0 adjustment).
+
+
+
+Appendix B — Workload CTE: `new_type`, multischedule handling, and recording-time logic
+B.1 What is `new_type` and how is it calculated?
+In the workload CTE, `new_type` is a per-URL indicator showing whether a URL has any LIVE sessions associated with it. It is computed by grouping over URL and summing a LIVE flag:
+    new_type = SUM(CASE WHEN lecturetype = 'LIVE' THEN 1 ELSE 0 END)  -- grouped by URL
+Helper CTE `b` retains only URLs where new_type = 0 (purely recorded URLs).
+B.2 Why do we use `new_type`?
+We use `new_type` to assign the correct event time for downstream aggregation:
+• If `new_type = 0` (recorded-only), we take `createdat` from `user_experience.gold_videos` as the authoritative timestamp.
+• Otherwise (LIVE present), we take `lecture_starttime` from `mview.gold_dbt_lecture_batch_info`.
+This avoids misclassifying 'work done' based on batch upload date — especially important because 10–15 recorded lectures may be uploaded in bulk on a single day, which does not reflect when the work was actually performed.
+B.3 Handling multischedule (faculty lecturing across multiple batches concurrently)
+A faculty member may deliver the same session across 4–5 batches using the same URL. To prevent double counting, we deduplicate at the teacher × URL level using a window rank (`rnk`) and keep only the primary row:
+    rnk = CASE WHEN ismultischedule = FALSE THEN 1
+               ELSE ROW_NUMBER() OVER (
+                      PARTITION BY teacher_id, main_url
+                      ORDER BY CASE WHEN lecturetype = 'LIVE' THEN 1 ELSE 2 END,
+                               conduct_date
+                    )
+          END
+We then filter to `rnk = 1`. This prioritizes LIVE over recorded and then the earliest conduct_date, yielding a single canonical record per teacher × URL.
+B.4 Deriving `conduct_date` (actual work date)
+`conduct_date` represents the true day the lecture was delivered or recorded:
+    conduct_date = CASE WHEN new_type = 0 THEN createdat  -- from user_experience.gold_videos
+                        ELSE lecture_starttime            -- from mview.gold_dbt_lecture_batch_info
+                   END
+For recorded sessions, using the recording time captures the real work day, not the later upload time into the batch.
+B.5 Source Tables — Audit (present in document and query)
+✔ central.gold_schedule_planner_mappings
+✔ cdp_revenue.gold_batches_pw
+✔ cdp_revenue.gold_subjects_pw
+✔ cdp_revenue.gold_users_pw
+✔ mview.gold_dbt_lecture_batch_info
+✔ user_experience.gold_videos
+
+Appendix C — FAQs: Filters, Metrics, and Calculations
+Note on Utilisation Benchmark: Utilisation % is computed at a monthly grain using a benchmark of 120 hours per faculty per month. For roll-ups spanning multiple faculties and/or months, the utilisation is computed as Total Hours ÷ (120 × #Distinct Faculty-Months).
+Q1. What are the filters available for end users to personalize the metrics on the dashboard?
+Users can filter data on the following levers: Leader, Exam Category (nexam), Faculty Name, Batch, Month Range, and Week Range.
+Q2. What is the total number of planned lectures?
+Metric: Planned Lectures (from Planned section).
+Calculation: SUM(planned_lectures) over the selected filters.
+Q3. How many lectures were actually conducted?
+Metric: Conducted Lectures (from Conducted section).
+Calculation: SUM(conducted_lectures) over the selected filters.
+Q4. What is the total planned lecture duration in hours?
+Metric: Planned Hours (from Planned section).
+Calculation: SUM(planned_hours) over the selected filters.
+Q5. What is the total conducted lecture duration in hours?
+Metric: Conducted Hours (from Conducted section).
+Calculation: SUM(conducted_hours) over the selected filters.
+Q6. What is the overall planned utilisation percentage?
+Metric: Utilisation % (Planned).
+Calculation (per faculty × month) : planned_hours ÷ 120. 
+Roll-up across multiple faculty/months: SUM(planned_hours) ÷ (120 × COUNT_DISTINCT(facultyid, lecture_month)).
+Q7. What is the overall conducted utilisation percentage?
+Metric: Utilisation % (Conducted).
+Calculation (per faculty × month): conducted_hours ÷ 120. 
+Roll-up across multiple faculty/months: SUM(conducted_hours) ÷ (120 × COUNT_DISTINCT(facultyid, lecture_month)).
+Additional Note — Week Range Filters
+The utilisation percentage is defined on a monthly benchmark (120 hours). When Week Range is used, hours may be displayed by week for exploration, but utilisation % is still computed against the monthly benchmark by aggregating weeks into their corresponding months within the selected range.
+Appendix C — Q7 Addendum: Multi‑Month Utilisation Calculation
+Scope & Benchmark: 
+Utilisation % (Conducted) is benchmarked at 120 hours per faculty per month. When the selected period spans multiple months, the denominator scales with the month count.
+Single Faculty over N Months
+Formula:  Utilisation % = SUM(conducted_hours) ÷ (120 × N_months)
+Example (2 months):  If a faculty conducted 150 hours across the two months → 150 ÷ (120 × 2) = 62.5%.
+Multiple Faculties over Multiple Months
+Preferred formula (per‑faculty capacity):  Utilisation % = SUM(conducted_hours) ÷ (120 × COUNT_DISTINCT(facultyid, lecture_month))
+This treats each faculty‑month as 120 hours of capacity. For example, with 2 faculties over 2 months each (4 faculty‑months total), the denominator is 120 × 4 = 480.
+

@@ -40,7 +40,7 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 | Error correction | SQL-of-Thought exact taxonomy (10+3 categories, 36 sub-types) | Classified repair > generic "fix this error" |
 | Difficulty routing | TriSQL-inspired | 3× latency reduction on 70% of queries |
 | Glossary format | Snowflake Cortex Analyst Semantic View YAML | Dimensions, facts, metrics, synonyms, time grains, verified queries, relationships |
-| Embedding model | text-embedding-3-small (benchmark vs large in Phase 3) | No SQL-specific evidence for upgrade, start cheap |
+| Embedding model | text-embedding-3-large (3072-dim) via Azure OpenAI | Separate Azure endpoint (eastusalakhai.openai.azure.com), deployment: embedlarge |
 | Documentation | First-class ingestion: Word/PDF/Markdown + OpenMetadata + YAML annotations | Databricks + Snowflake both learned: structured metadata beats raw descriptions |
 | Graph database | NetworkX (no FalkorDB) | dbt lineage + Metabase JOINs give us the graph for free |
 | Vector DB | pgvector (existing) | Already available, sufficient for embeddings |
@@ -213,6 +213,44 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 6. **User's targeted research** (Mar 4): Found CHESS is dead (9 commits), CHASE-SQL is paper-only, PExA is probe-before-generate (not validate-after), Snowflake Cortex YAML spec, SQL-of-Thought error_taxonomy.json.
 
 7. **Final v4 built** (Mar 4): Six structural changes from v3. Build from scratch. PExA probes as Stage 4. Full error taxonomy embedded. Snowflake-style semantic model. Documentation ingestion. 1,667-line document ready for Claude Code.
+
+---
+
+## E2E Test Results — Faculty Utilization (March 5, 2026)
+
+### Data Exploration Findings
+- **lecture_status values**: `PENDING`, `COMPLETED`, `CANCELED`, `"PENDING"` (quoted). NOT "CONDUCTED".
+- **lecturetype values**: `LIVE`, `RECORDED`, `PDF`, `SECONDARY`, `None`
+- **financeexamcategory**: `JEE` (not `IIT-JEE`), `NEET`, `SSC`, `Banking`, `GATE`, `UPSC Online`, `Power Batch`, etc.
+- **Schedule planner date range**: 2015-10 to 2028-08 (includes future planned). March 2026: 69,934 rows.
+- **Lecture batch info date range**: Top end = Dec 2025 (~555K rows). **No 2026 data** — replica snapshot.
+- Tables overlap only pre-2026: Must use `WHERE month = '2025-12-01'` style filters for realistic tests.
+
+### Test Pass 1 — 6 Natural Language Questions (first generation)
+| # | Question | Exec | Rows | Issue |
+|---|---|---|---|---|
+| Q1 | Total planned lectures | ✅ | 516,497 | — |
+| Q2 | Top subjects by conducted | ✅ | 0 | Used `lecture_status='CONDUCTED'` (wrong; should be `'COMPLETED'`) |
+| Q3 | Distinct faculty count | ✅ | 0 | Same `lecture_status` issue |
+| Q4 | Planned+conducted hours by nexam | ❌ | — | `date_diff('minute', DATE, DATE)` — needs TIMESTAMP |
+| Q5 | Highest utilisation faculty | ❌ | — | `ROW_NUMBER()` in WHERE (not allowed in Trino) |
+| Q6 | Leader comparison | ❌ | — | Column alias `leader` in UNION ALL GROUP BY |
+| | **Result** | **3/6 exec (50%)** | | **LLM cost: $0.07** |
+
+### Test Pass 2 — Revision Loop (self-repair on 3 failures)
+| # | Original Error | Attempt | Result |
+|---|---|---|---|
+| Q4 | date_diff on DATE | 1 | ✅ Fixed — removed TRY_CAST to DATE, used timestamps directly. 59 rows returned. |
+| Q5 | ROW_NUMBER in WHERE | 2 | ✅ Fixed (attempt 2) — CTE with rnk, then filter. 0 rows (date range). |
+| Q6 | Column alias in UNION | 2 | ✅ Fixed (attempt 2) — separate CTEs, full CASE in GROUP BY. 0 rows (date range). |
+| | **Revision cost** | | **$0.025 (5 LLM calls)** |
+
+### Key Insights
+1. **Revision loop works**: 3/3 syntax errors fixed via LLM self-repair (100% recovery after max 2 attempts).
+2. **Semantic errors undetected**: LLM guessed `lecture_status='CONDUCTED'` instead of `'COMPLETED'` — needs domain context.
+3. **Date range gap**: lecture_batch_info ends Dec 2025; schedule_planner has 2026+ data. "Current month" filters return 0.
+4. **Overall pipeline**: 6/6 SQL generation success → 3/6 execute on first try → 6/6 after revision = **100% with self-repair**.
+5. **Error taxonomy validated**: All 3 failure patterns are in `config/error_taxonomy.json` (trino_specific, syntax, subquery).
 
 ---
 

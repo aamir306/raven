@@ -216,10 +216,11 @@ class TestContentAwareness:
         ]
 
         awareness = build_content_awareness(catalog, trino_connector=None)
-        assert "gold.fact_orders" in awareness
-        assert "order_id" in awareness["gold.fact_orders"]
+        # New flattened format: "table.column" keys
+        assert "gold.fact_orders.order_id" in awareness
+        assert "gold.fact_orders.order_date" in awareness
         # order_date is auto-detected as partition by name heuristic
-        assert awareness["gold.fact_orders"]["order_date"]["data_type"] == "DATE"
+        assert awareness["gold.fact_orders.order_date"]["data_type"] == "DATE"
 
     def test_skips_bronze_tables(self):
         from preprocessing.build_content_awareness import build_content_awareness
@@ -230,8 +231,8 @@ class TestContentAwareness:
         ]
 
         awareness = build_content_awareness(catalog, trino_connector=None)
-        assert "bronze.raw_events" not in awareness
-        assert "gold.fact_orders" in awareness
+        assert "bronze.raw_events.id" not in awareness
+        assert "gold.fact_orders.id" in awareness
 
 
 # ── Test: Table Graph ─────────────────────────────────────────────────

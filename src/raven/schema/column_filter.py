@@ -107,10 +107,16 @@ class ColumnFilter:
         )
         lines: list[str] = []
         for r in results:
-            meta = r.get("metadata", {})
-            name = meta.get("table_name", "unknown")
+            meta = r.get("metadata") or {}
+            name = r.get("table_name") or meta.get("table_name", "unknown")
             desc = meta.get("description", "")
-            cols = meta.get("key_columns", "")
+            # description column stores the full embedding text (table + columns summary)
+            full_text = r.get("description", "")
+            # Extract column info from the full text if available
+            if full_text and ". Columns:" in full_text:
+                cols = full_text.split(". Columns:", 1)[1].strip()[:200]
+            else:
+                cols = ""
             lines.append(f"{name} | {desc} | {cols}")
         return "\n".join(lines) if lines else "(No catalog loaded — run preprocessing first)"
 

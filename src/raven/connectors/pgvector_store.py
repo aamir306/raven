@@ -23,7 +23,7 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-EMBEDDING_DIM = 1536
+EMBEDDING_DIM = 3072
 
 # Table definitions: (table_name, extra_columns_sql)
 _TABLES: dict[str, str] = {
@@ -105,14 +105,20 @@ class PgVectorStore:
                 for table_name, columns_sql in _TABLES.items():
                     ddl = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_sql.format(dim=EMBEDDING_DIM)});"
                     cur.execute(ddl)
-                    # IVFFlat index for cosine similarity
-                    idx_name = f"idx_{table_name}_embedding"
-                    cur.execute(f"""
-                        CREATE INDEX IF NOT EXISTS {idx_name}
-                        ON {table_name}
-                        USING ivfflat (embedding vector_cosine_ops)
-                        WITH (lists = 100);
-                    """)
+                    # Vector index — pgvector 0.8.0 limits indexes to ≤2000 dims
+                    # For 3072-dim (text-embedding-3-large), skip index creation;
+                    # sequential scan is fast enough for <10K rows.
+                    if EMBEDDING_DIM <= 2000:
+                        idx_name = f"idx_{table_name}_embedding"
+                        cur.execute(f"""
+                            CREATE INDEX IF NOT EXISTS {idx_name}
+                            ON {table_name}
+                            USING hnsw (embedding vector_cosine_ops)
+                            WITH (m = 16, ef_construction = 64);
+                        """)
+                    else:
+                        logger.info("pgvector_skip_index", table=table_name,
+                                    reason=f"dim={EMBEDDING_DIM} exceeds pgvector index limit (2000)")
             conn.commit()
             logger.info("pgvector_tables_initialized", tables=list(_TABLES.keys()))
         finally:
@@ -194,30 +200,48 @@ class PgVectorStore:
 
     def search(
         self,
-        table: str,
-        query_embedding: list[float],
+        table_name: str | None = None,
+        query_embedding: list[float] | None = None,
         top_k: int = 5,
         filter_sql: str | None = None,
+        metadata_filter: dict[str, Any] | None = None,
+        *,
+        table: str | None = None,  # backward-compat alias
     ) -> list[dict[str, Any]]:
         """Cosine similarity search.  Returns top_k results ordered by similarity (descending).
 
         Parameters
         ----------
-        table:
+        table_name:
             One of the four embedding tables.
         query_embedding:
-            The query vector (1536-dim).
+            The query vector (3072-dim for text-embedding-3-large).
         top_k:
             Number of results to return.
         filter_sql:
             Optional SQL WHERE clause fragment, e.g. ``"source = 'metabase'"``.
+        metadata_filter:
+            Optional dict of metadata key-value pairs to filter on (uses JSONB @> operator).
+        table:
+            Alias for table_name (backward compatibility).
         """
-        self._validate_table(table)
+        tbl = table_name or table
+        if not tbl:
+            raise ValueError("Either table_name or table must be provided")
+        self._validate_table(tbl)
         emb_str = self._to_pgvector(query_embedding)
-        where = f"WHERE {filter_sql}" if filter_sql else ""
+
+        # Build WHERE clause
+        where_parts: list[str] = []
+        if filter_sql:
+            where_parts.append(filter_sql)
+        if metadata_filter:
+            where_parts.append(f"metadata @> '{json.dumps(metadata_filter)}'::jsonb")
+        where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+
         sql = f"""
             SELECT *, 1 - (embedding <=> %s) AS similarity
-            FROM {table}
+            FROM {tbl}
             {where}
             ORDER BY embedding <=> %s
             LIMIT %s;
@@ -236,11 +260,14 @@ class PgVectorStore:
     # Delete
     # ------------------------------------------------------------------ #
 
-    def delete_by_source(self, table: str, source: str) -> int:
+    def delete_by_source(self, table: str | None = None, source: str = "", *, table_name: str | None = None) -> int:
         """Delete all rows where source/source_file matches — useful for re-indexing."""
-        self._validate_table(table)
-        col = "source_file" if table == "doc_embeddings" else "source"
-        sql = f"DELETE FROM {table} WHERE {col} = %s;"
+        tbl = table or table_name
+        if not tbl:
+            raise ValueError("Either table or table_name must be provided")
+        self._validate_table(tbl)
+        col = "source_file" if tbl == "doc_embeddings" else "source"
+        sql = f"DELETE FROM {tbl} WHERE {col} = %s;"
         conn = self._pool.getconn()
         try:
             with conn.cursor() as cur:
@@ -252,15 +279,18 @@ class PgVectorStore:
         finally:
             self._pool.putconn(conn)
 
-    def truncate(self, table: str) -> None:
+    def truncate(self, table: str | None = None, *, table_name: str | None = None) -> None:
         """Truncate an entire table (for full re-index)."""
-        self._validate_table(table)
+        tbl = table or table_name
+        if not tbl:
+            raise ValueError("Either table or table_name must be provided")
+        self._validate_table(tbl)
         conn = self._pool.getconn()
         try:
             with conn.cursor() as cur:
-                cur.execute(f"TRUNCATE TABLE {table};")
+                cur.execute(f"TRUNCATE TABLE {tbl};")
             conn.commit()
-            logger.info("pgvector_truncated", table=table)
+            logger.info("pgvector_truncated", table=tbl)
         finally:
             self._pool.putconn(conn)
 

@@ -10,10 +10,13 @@ Main entry point that wires the 8-stage pipeline:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import pickle
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from .connectors.openai_client import OpenAIClient
@@ -102,6 +105,60 @@ class Pipeline:
         self.renderer = OutputRenderer(openai, trino)
         self.feedback = FeedbackCollector(pgvector)
 
+        # Load preprocessing artifacts from data/ directory
+        self._load_artifacts()
+
+    def _load_artifacts(self) -> None:
+        """Load preprocessing artifacts into stage modules at startup."""
+        data_dir = Path(__file__).resolve().parents[2] / "data"
+
+        # 1. Table graph → SchemaSelector's GraphPathFinder
+        graph_path = data_dir / "table_graph.gpickle"
+        if graph_path.exists():
+            try:
+                with open(graph_path, "rb") as f:
+                    graph = pickle.load(f)
+                if hasattr(self.schema_selector, "set_graph"):
+                    self.schema_selector.set_graph(graph)
+                    logger.info("Loaded table graph: %d nodes, %d edges",
+                                graph.number_of_nodes(), graph.number_of_edges())
+            except Exception as e:
+                logger.warning("Failed to load table graph: %s", e)
+
+        # 2. LSH index → InformationRetriever's LSHMatcher
+        lsh_path = data_dir / "lsh_index.pkl"
+        if lsh_path.exists():
+            try:
+                with open(lsh_path, "rb") as f:
+                    lsh_data = pickle.load(f)
+                if hasattr(self.retriever, "set_lsh_index"):
+                    self.retriever.set_lsh_index(
+                        lsh_data.get("lsh"), lsh_data.get("metadata")
+                    )
+                    logger.info("Loaded LSH index: %d entries",
+                                len(lsh_data.get("metadata", {})))
+            except Exception as e:
+                logger.warning("Failed to load LSH index: %s", e)
+
+        # 3. Schema catalog → column catalog for SchemaSelector's ColumnPruner
+        catalog_path = data_dir / "schema_catalog.json"
+        if catalog_path.exists():
+            try:
+                with open(catalog_path) as f:
+                    raw_catalog = json.load(f)
+                column_catalog = {}
+                for table in raw_catalog:
+                    fqn = table.get("table_name", "")
+                    if fqn and table.get("columns"):
+                        column_catalog[fqn] = table["columns"]
+                if hasattr(self.schema_selector, "set_column_catalog"):
+                    self.schema_selector.set_column_catalog(column_catalog)
+                    logger.info("Loaded column catalog: %d tables, %d columns",
+                                len(column_catalog),
+                                sum(len(v) for v in column_catalog.values()))
+            except Exception as e:
+                logger.warning("Failed to load schema catalog: %s", e)
+
     async def generate(self, question: str, conversation_id: str | None = None) -> dict:
         """
         Run the full pipeline for a user question.
@@ -152,7 +209,7 @@ class Pipeline:
             return self._error_response(ctx, e)
 
         ctx.stage_timings["total"] = time.monotonic() - pipeline_start
-        ctx.total_cost = self.openai.get_cost_summary().get("total_cost", 0.0)
+        ctx.total_cost = self.openai.get_cost_summary().get("total_usd", 0.0)
 
         return self._success_response(ctx)
 

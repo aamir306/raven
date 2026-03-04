@@ -80,10 +80,28 @@ class OpenAIClient:
                 endpoint=azure_base[:60],
                 api_version=azure_version,
             )
+
+            # Separate Azure OpenAI client for embeddings (may use a different endpoint/deployment)
+            embed_endpoint = os.getenv("AZURE_OPENAI_EMBED_ENDPOINT", "")
+            embed_key = os.getenv("AZURE_OPENAI_EMBED_KEY", "")
+            embed_version = os.getenv("AZURE_OPENAI_EMBED_API_VERSION", "2023-05-15")
+            if embed_endpoint and embed_key:
+                self._embed_client = AsyncAzureOpenAI(
+                    api_key=embed_key,
+                    azure_endpoint=embed_endpoint,
+                    api_version=embed_version,
+                )
+                self._embed_deployment = os.getenv("AZURE_OPENAI_EMBED_DEPLOYMENT", "text-embedding-3-small")
+                logger.info("openai_embed_client_init", endpoint=embed_endpoint[:60], deployment=self._embed_deployment)
+            else:
+                self._embed_client = self._client
+                self._embed_deployment = None
         else:
             # Fallback to direct OpenAI
             direct_key = api_key or os.getenv("OPENAI_API_KEY", "")
             self._client = AsyncOpenAI(api_key=direct_key)
+            self._embed_client = self._client
+            self._embed_deployment = None
             self._provider = "openai"
             logger.info("openai_client_init", provider="openai")
 
@@ -111,8 +129,9 @@ class OpenAIClient:
             else:
                 break
         if not isinstance(cfg, dict) or "model" not in cfg:
-            # Sensible default
-            return {"model": "gpt-4o-mini", "max_tokens": 1000, "temperature": 0}
+            # Sensible default — use the primary deployment name (gpt4o for Azure)
+            default_model = self._deployment or "gpt4o"
+            return {"model": default_model, "max_tokens": 1000, "temperature": 0}
         return cfg
 
     # ------------------------------------------------------------------ #
@@ -222,10 +241,15 @@ class OpenAIClient:
     async def batch_embed(self, texts: list[str], batch_size: int = 2048) -> list[list[float]]:
         """Embed multiple texts in batches.
 
-        Returns a list of embedding vectors (1536-dim each).
+        Returns a list of embedding vectors.
+        Uses the dedicated embedding client/deployment if configured.
         """
+        # Use dedicated embed client if available
+        embed_client = getattr(self, "_embed_client", self._client)
+        embed_deployment = getattr(self, "_embed_deployment", None)
+
         emb_config = self._config.get("embeddings", {})
-        model = emb_config.get("model", "text-embedding-3-small")
+        model = embed_deployment or emb_config.get("model", "text-embedding-3-small")
         all_embeddings: list[list[float]] = []
 
         for i in range(0, len(texts), batch_size):
@@ -233,7 +257,7 @@ class OpenAIClient:
             for attempt in range(1, _MAX_RETRIES + 1):
                 try:
                     start = time.perf_counter()
-                    response = await self._client.embeddings.create(
+                    response = await embed_client.embeddings.create(
                         model=model,
                         input=batch,
                     )

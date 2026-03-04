@@ -33,6 +33,9 @@ Thumbs.db
 
 # Generated data artifacts (rebuild with preprocessing/refresh_all.py)
 data/*.json
+data/*.yml
+data/*.yaml
+data/*.csv
 data/*.pkl
 data/*.gpickle
 data/*.pickle

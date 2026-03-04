@@ -6,86 +6,114 @@
 #
 # Current setup: Azure OpenAI with a single "gpt4o" deployment.
 # When a "gpt4o-mini" deployment is created, update stages below.
+#
+# Stage names match the stage_name argument passed to OpenAIClient.complete().
 
 stages:
+  # ── Stage 1: Router ─────────────────────────────────────────────────
   router:
     model: gpt4o
     max_tokens: 50
     temperature: 0
     cost_per_call: 0.001
 
-  information_retriever:
+  # ── Stage 2: Information Retrieval ──────────────────────────────────
+  ir_keyword_extract:
     model: gpt4o
     max_tokens: 300
     temperature: 0
     cost_per_call: 0.001
 
-  schema_selector:
-    column_filter:
-      model: gpt4o
-      max_tokens: 1000
-      temperature: 0
-      cost_per_call: 0.001
-    table_selector:
-      model: gpt4o
-      max_tokens: 800
-      temperature: 0
-      cost_per_call: 0.002
-    column_pruner:
-      model: gpt4o
-      max_tokens: 600
-      temperature: 0
-      cost_per_call: 0.001
+  # ── Stage 3: Schema Selection ───────────────────────────────────────
+  ss_column_filter:
+    model: gpt4o
+    max_tokens: 1000
+    temperature: 0
+    cost_per_call: 0.001
 
-  probe_planner:
+  ss_table_select:
+    model: gpt4o
+    max_tokens: 800
+    temperature: 0
+    cost_per_call: 0.002
+
+  ss_column_prune:
+    model: gpt4o
+    max_tokens: 600
+    temperature: 0
+    cost_per_call: 0.001
+
+  # ── Stage 4: Probes ────────────────────────────────────────────────
+  probe_decompose:
     model: gpt4o
     max_tokens: 500
     temperature: 0
     cost_per_call: 0.002
 
-  sql_generator:
-    simple:
-      model: gpt4o
-      max_tokens: 2000
-      temperature: 0.0
-      cost_per_call: 0.003
-    complex:
-      model: gpt4o
-      max_tokens: 4000
-      temperature: 0.3
-      cost_per_call: 0.020
+  probe_generate:
+    model: gpt4o
+    max_tokens: 500
+    temperature: 0
+    cost_per_call: 0.002
 
-  revision:
+  # ── Stage 5: SQL Generation ─────────────────────────────────────────
+  gen_simple:
+    model: gpt4o
+    max_tokens: 2000
+    temperature: 0.0
+    cost_per_call: 0.003
+
+  gen_candidate_a:
+    model: gpt4o
+    max_tokens: 4000
+    temperature: 0.3
+    cost_per_call: 0.020
+
+  gen_candidate_b:
+    model: gpt4o
+    max_tokens: 4000
+    temperature: 0.3
+    cost_per_call: 0.020
+
+  gen_candidate_c:
+    model: gpt4o
+    max_tokens: 4000
+    temperature: 0.3
+    cost_per_call: 0.020
+
+  gen_revision:
     model: gpt4o
     max_tokens: 4000
     temperature: 0
     cost_per_call: 0.020
 
-  selection_agent:
+  # ── Stage 6: Validation ────────────────────────────────────────────
+  val_pairwise:
     model: gpt4o
     max_tokens: 200
     temperature: 0
     cost_per_call: 0.003
 
-  error_taxonomy_checker:
+  val_taxonomy:
     model: gpt4o
     max_tokens: 500
     temperature: 0
     cost_per_call: 0.003
 
-  chart_detector:
+  # ── Stage 7: Output ────────────────────────────────────────────────
+  out_chart:
     model: gpt4o
     max_tokens: 200
     temperature: 0
     cost_per_call: 0.001
 
-  nl_summarizer:
+  out_summary:
     model: gpt4o
     max_tokens: 300
     temperature: 0.3
     cost_per_call: 0.001
 
 embeddings:
-  model: text-embedding-3-small
-  dimensions: 1536
-  cost_per_1k_tokens: 0.00002
+  model: text-embedding-3-large
+  dimensions: 3072
+  cost_per_1k_tokens: 0.00013

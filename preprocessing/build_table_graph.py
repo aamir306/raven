@@ -14,7 +14,7 @@ to discover multi-hop table paths for complex queries.
 Usage:
     python -m preprocessing.build_table_graph \
         --dbt-lineage data/dbt_lineage_graph.gpickle \
-        --metabase-joins data/join_patterns.json \
+        --metabase-joins data/metabase_join_patterns.json \
         --semantic-model config/semantic_model.yaml \
         --output data/table_graph.gpickle
 """
@@ -112,7 +112,7 @@ def build_semantic_edges(model: dict) -> list[tuple[str, str, dict]]:
             type: many_to_one
     """
     edges = []
-    tables = model.get("tables", [])
+    tables = model.get("tables") or []
 
     for table in tables:
         table_name = _normalize_table_name(table.get("name", ""))
@@ -293,7 +293,7 @@ def save_graph_summary(G: nx.DiGraph, output_path: Path) -> None:
 def main():
     parser = argparse.ArgumentParser(description="Build unified table graph for RAVEN")
     parser.add_argument("--dbt-lineage", default="data/dbt_lineage_graph.gpickle")
-    parser.add_argument("--metabase-joins", default="data/join_patterns.json")
+    parser.add_argument("--metabase-joins", default="data/metabase_join_patterns.json")
     parser.add_argument("--semantic-model", default="config/semantic_model.yaml")
     parser.add_argument("--output", default="data/table_graph.gpickle")
     args = parser.parse_args()
