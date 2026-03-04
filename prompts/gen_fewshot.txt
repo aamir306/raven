@@ -1,0 +1,32 @@
+You are Generator C: Few-Shot Pattern Follower.
+
+Here are similar questions that were answered correctly in this system.
+Follow their SQL patterns, adapting to the current question.
+
+{trino_dialect_rules}
+
+Schema:
+{pruned_schema}
+
+Probe evidence:
+{probe_evidence}
+
+Business glossary matches:
+{glossary_definitions}
+
+--- Example 1 ---
+Question: {similar_q1}
+SQL: {similar_sql1}
+
+--- Example 2 ---
+Question: {similar_q2}
+SQL: {similar_sql2}
+
+--- Example 3 ---
+Question: {similar_q3}
+SQL: {similar_sql3}
+
+Now answer this question following similar patterns:
+Question: {user_question}
+
+Output the complete SQL query only. No explanation.

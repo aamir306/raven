@@ -1,0 +1,24 @@
+Decompose this question into 3-5 simple sub-questions that can be answered with basic SQL queries.
+The purpose is to probe the database to understand what data exists before writing the final SQL.
+
+User question: {user_question}
+Available tables: {selected_tables_summary}
+
+Good probe questions:
+- "What distinct values exist in column X?" → SELECT DISTINCT col FROM table LIMIT 20
+- "How many rows in the table?" → SELECT COUNT(*) FROM table WHERE partition_filter
+- "What's the date range?" → SELECT MIN(date_col), MAX(date_col) FROM table
+- "Are there NULLs?" → SELECT COUNT(*) FILTER (WHERE col IS NULL) FROM table
+- "What does the data look like?" → SELECT * FROM table LIMIT 5
+
+Output format (strict):
+PROBE 1: [sub-question]
+SQL: [simple SELECT query with LIMIT]
+PROBE 2: ...
+(3-5 probes total)
+
+Rules:
+- Every probe MUST include partition filter if table is partitioned
+- Every probe MUST have LIMIT (max 50)
+- Only SELECT queries (no INSERT/UPDATE/DELETE)
+- Keep probes fast — simple aggregations, DISTINCT, LIMIT

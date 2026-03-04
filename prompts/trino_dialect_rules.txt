@@ -1,0 +1,23 @@
+# Trino-Iceberg Dialect Rules
+# Include this in every SQL generation prompt.
+
+1. Use TRY_CAST(x AS type) instead of CAST — prevents query failure on bad data
+2. Date arithmetic: CURRENT_DATE - INTERVAL '7' DAY (not DATEADD, not DATE_SUB)
+3. String concat: use || operator or CONCAT(), not + operator
+4. LIMIT goes at the very end — no TOP keyword in Trino
+5. Array access: arr[1] is first element (1-indexed, not 0-indexed)
+6. Use APPROX_DISTINCT(col) instead of COUNT(DISTINCT col) for tables > 1M rows
+7. NULL handling: use COALESCE(col, default), not IFNULL or NVL
+8. TIMESTAMP literal: TIMESTAMP '2024-01-01 00:00:00', not string comparison
+9. Partition columns MUST be in WHERE clause for large tables (> 100M rows)
+10. GROUP BY can use column position: GROUP BY 1, 2 (Trino supports this)
+11. Window functions: ROW_NUMBER() OVER (PARTITION BY x ORDER BY y)
+12. QUALIFY is NOT supported — use subquery with window function instead
+13. Use DATE_TRUNC('week', date_col) for time bucketing, not WEEK() function
+14. MERGE is NOT supported for reads — only SELECT/WITH
+15. For LIKE patterns: use LIKE '%pattern%' (case-sensitive) or regexp_like(col, 'pattern')
+16. Boolean columns: WHERE flag = true, not WHERE flag = 1
+17. JSON access: json_extract_scalar(col, '$.path') returns VARCHAR
+18. BETWEEN is inclusive on both ends
+19. NOT IN with NULL values returns empty — use NOT EXISTS instead
+20. Use MAP type for key-value data: element_at(map_col, 'key')

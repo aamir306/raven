@@ -1,0 +1,23 @@
+Compare two SQL queries. Which is more likely to correctly answer the question?
+
+Question: {user_question}
+Schema: {pruned_schema}
+
+Candidate A:
+{sql_a}
+
+Candidate B:
+{sql_b}
+
+Check each:
+- Correct tables selected?
+- Correct JOIN conditions?
+- Correct WHERE filters matching the question?
+- Correct aggregation (GROUP BY, SUM/COUNT/AVG)?
+- Correct column names?
+- Trino syntax compliant?
+- Partition filter included?
+
+Output format (strict):
+WINNER: A or B
+REASON: [one sentence]

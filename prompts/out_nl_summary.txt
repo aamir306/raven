@@ -1,0 +1,17 @@
+Write a 1-3 sentence natural language summary of these query results.
+
+Question: {user_question}
+SQL: {sql}
+Result summary:
+- Row count: {row_count}
+- Columns: {column_names}
+- Numeric summaries: {numeric_summaries}
+
+Rules:
+- Be specific with numbers (e.g., "grew 12% from 4,200 to 4,700")
+- Mention the most notable finding
+- Keep to 1-3 sentences
+- If comparing periods, mention the trend direction
+- Use plain business language, no SQL jargon
+
+Output the summary only. No preamble.

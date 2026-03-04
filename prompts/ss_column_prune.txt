@@ -1,0 +1,21 @@
+You are pruning columns for SQL generation. Keep ONLY columns needed to answer the question.
+
+User question: {user_question}
+
+Selected tables and ALL their columns:
+{selected_tables_full_columns}
+
+Content Awareness metadata:
+{content_awareness}
+
+Documentation notes:
+{doc_snippets}
+
+For each table, output ONLY the columns needed (max 15 per table).
+Include the column's Content Awareness info (data type, format, enum values, NULL rate, notes).
+
+Output format (strict):
+TABLE: table_name
+  - column_name (TYPE) — description. Format: X. Enum: [a, b, c]. NULL: X%. Note: X.
+  - ...
+TABLE: ...

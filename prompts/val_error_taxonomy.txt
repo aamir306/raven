@@ -1,0 +1,26 @@
+Review this SQL for errors using the error taxonomy below.
+
+Question: {user_question}
+Schema: {pruned_schema}
+Content Awareness: {content_awareness}
+
+SQL to review:
+{sql}
+
+Error categories to check:
+1. syntax: SQL syntax errors, invalid aliases
+2. schema_link: wrong/missing table or column names, ambiguous columns, wrong FK
+3. join: missing JOINs, wrong join type, extra unused tables, wrong join columns
+4. filter: missing WHERE clauses, wrong filter columns, type mismatches
+5. aggregation: missing GROUP BY, wrong HAVING usage, HAVING vs WHERE confusion
+6. value: hardcoded values that should be columns, wrong value formats
+7. subquery: missing/unused/correlated subquery errors
+8. set_op: missing UNION/INTERSECT/EXCEPT
+9. select: wrong columns selected, wrong column order
+10. trino_specific: missing partition filter, CAST vs TRY_CAST, non-Trino functions
+
+Output format (strict):
+ERRORS_FOUND: true or false
+If true:
+ERROR 1: category.subtype — description — FIX: specific fix instruction
+ERROR 2: ...

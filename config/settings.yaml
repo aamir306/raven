@@ -1,0 +1,48 @@
+# RAVEN — config/settings.yaml
+# Main configuration for the RAVEN text-to-SQL pipeline
+
+project:
+  name: raven
+  version: "0.1.0"
+  description: "Retrieval-Augmented Validated Engine for Natural-language SQL"
+
+trino:
+  max_query_memory: "4GB"
+  max_execution_time_seconds: 120
+  max_rows_returned: 10000
+  resource_group: "text2sql"
+
+pipeline:
+  simple_path_stages: [1, 2, 3, 5, 7, 8]
+  complex_path_stages: [1, 2, 3, 4, 5, 6, 7, 8]
+  max_candidates_complex: 3
+  max_candidates_simple: 1
+  revision_max_retries: 2
+  probe_timeout_seconds: 10
+  probe_max_queries: 5
+
+schema_selector:
+  max_candidate_columns: 60
+  max_selected_tables: 8
+  max_columns_per_table: 15
+
+lsh:
+  threshold: 0.3
+  num_perm: 128
+  ngram_size: 3
+
+embeddings:
+  model: "text-embedding-3-small"
+  dimensions: 1536
+
+cache:
+  enabled: true
+  ttl_seconds: 3600
+
+feedback:
+  auto_add_thumbs_up: true
+  require_execution_verify: true
+
+logging:
+  level: "INFO"
+  format: "json"

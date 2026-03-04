@@ -1,0 +1,22 @@
+Extract search keywords from this question for a Trino data warehouse.
+
+Rules:
+- Extract domain-specific nouns and terms (e.g., "active users", "revenue", "batch")
+- Parse time references into Trino date expressions
+- Identify metric names that might match business glossary entries
+- Do NOT include generic SQL words (SELECT, COUNT, etc.)
+
+Output format (strict — follow exactly):
+KEYWORDS: keyword1, keyword2, keyword3
+TIME_RANGE: <trino date expression> or NONE
+METRICS: metric1, metric2 or NONE
+ENTITIES: entity1, entity2 or NONE
+
+Example:
+Question: "How many enterprise users were active last week?"
+KEYWORDS: enterprise, users, active
+TIME_RANGE: CURRENT_DATE - INTERVAL '7' DAY
+METRICS: active users, DAU
+ENTITIES: enterprise
+
+Question: {user_question}

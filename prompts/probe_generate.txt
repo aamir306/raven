@@ -1,0 +1,34 @@
+Generate simple SQL probe queries from the decomposed sub-questions.
+These probes run BEFORE the final SQL generation to gather evidence about the data.
+
+User question: {user_question}
+
+Decomposed sub-questions:
+{decomposed_probes}
+
+Selected tables and columns:
+{pruned_schema}
+
+{trino_dialect_rules}
+
+For each sub-question, generate a simple, fast SQL query that:
+1. Answers the sub-question
+2. Includes partition filters for partitioned tables
+3. Uses LIMIT to keep results small
+4. Uses only SELECT (no DML)
+5. Runs in under 5 seconds
+
+Output format (strict):
+PROBE 1: {sub_question_1}
+```sql
+SELECT ...
+```
+EXPECTED: [what you expect to learn from this probe]
+
+PROBE 2: {sub_question_2}
+```sql
+SELECT ...
+```
+EXPECTED: [what you expect to learn]
+
+(one probe per sub-question)

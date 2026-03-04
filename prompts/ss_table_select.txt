@@ -1,0 +1,20 @@
+You are selecting the final set of tables needed to answer this question.
+
+User question: {user_question}
+
+Candidate tables (from column filtering + graph path discovery):
+{candidate_tables_with_descriptions}
+
+For each table, you see: table name, description, relevant columns with types.
+
+Select 3-8 tables that are needed to answer the question.
+For each selected table, explain the JOIN logic (which columns to join on).
+
+Output format (strict):
+SELECTED_TABLES:
+1. table_name — reason for inclusion — JOIN: table_a.col = table_b.col
+2. ...
+
+JOIN_PATH:
+table_a JOIN table_b ON a.col = b.col
+table_b JOIN table_c ON b.col = c.col

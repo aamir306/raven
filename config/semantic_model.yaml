@@ -1,0 +1,90 @@
+# RAVEN — config/semantic_model.yaml
+# Snowflake Cortex Analyst-style semantic model
+# This is the business glossary — the most impactful manual effort.
+#
+# Start with your most important tables and expand based on failure analysis.
+# Target: 10 key tables, 30+ business rules, 20+ verified queries.
+
+name: raven_analytics
+description: "Semantic model for RAVEN text-to-SQL pipeline"
+
+tables:
+  # ── Example table definitions ────────────────────────────────────────
+  # Uncomment and adapt these to your actual tables.
+  #
+  # - name: gold.daily_active_users
+  #   description: "Daily active user counts by segment and platform"
+  #   base_table:
+  #     catalog: cdp
+  #     schema: gold_dbt
+  #     table: daily_active_users
+  #   dimensions:
+  #     - name: segment
+  #       synonyms: ["user type", "plan", "tier", "subscription type"]
+  #       description: "User subscription segment"
+  #       expr: segment
+  #       data_type: VARCHAR
+  #       is_enum: true
+  #       enum_values: ["free", "premium", "enterprise"]
+  #     - name: platform
+  #       synonyms: ["device", "app"]
+  #       description: "Platform where activity occurred"
+  #       expr: platform
+  #       data_type: VARCHAR
+  #       is_enum: true
+  #   time_dimensions:
+  #     - name: date
+  #       synonyms: ["day", "ds"]
+  #       description: "Activity date"
+  #       expr: ds
+  #       data_type: DATE
+  #       is_partition: true
+  #   facts:
+  #     - name: active_users
+  #       synonyms: ["DAU", "daily active users", "active user count"]
+  #       description: "Count of distinct users with at least one session"
+  #       expr: active_user_count
+  #       data_type: BIGINT
+  #   metrics:
+  #     - name: dau
+  #       description: "Daily Active Users"
+  #       expr: "SUM(active_user_count)"
+  #       synonyms: ["DAU", "daily actives"]
+
+relationships: []
+  # - name: users_to_orders
+  #   left_table: gold.daily_active_users
+  #   right_table: gold.orders
+  #   join_type: LEFT JOIN
+  #   relationship_columns:
+  #     - left_column: user_id
+  #       right_column: user_id
+  #   note: "Not all active users have orders"
+
+business_rules: []
+  # - term: "active user"
+  #   definition: "User with at least one session in the last 30 days"
+  #   sql_fragment: "WHERE last_activity > CURRENT_DATE - INTERVAL '30' DAY"
+  #   synonyms: ["active customer", "engaged user", "live user"]
+  #
+  # - term: "churn"
+  #   definition: "Previously active user with no activity for 90+ days"
+  #   sql_fragment: "WHERE last_activity < CURRENT_DATE - INTERVAL '90' DAY AND was_active = true"
+  #   synonyms: ["churned user", "lost user", "inactive user"]
+  #
+  # - term: "revenue"
+  #   definition: "Total payment amount for completed/paid orders"
+  #   sql_fragment: "SUM(amount) WHERE status IN ('completed', 'paid')"
+  #   synonyms: ["sales", "GMV", "earnings", "income"]
+
+verified_queries: []
+  # - name: daily_active_users_by_segment
+  #   question: "How many active users by segment yesterday?"
+  #   sql: |
+  #     SELECT segment, COUNT(DISTINCT user_id) as active_users
+  #     FROM cdp.gold_dbt.daily_active_users
+  #     WHERE ds = CURRENT_DATE - INTERVAL '1' DAY
+  #       AND is_deleted = false
+  #     GROUP BY segment
+  #     ORDER BY active_users DESC
+  #   use_as_onboarding: true

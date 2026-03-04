@@ -1,0 +1,44 @@
+# RAVEN — Python Dependencies
+# Core
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+
+# LLM
+openai>=1.6.0
+
+# Trino
+trino[sqlalchemy]>=0.328.0
+
+# PostgreSQL + pgvector
+psycopg2-binary>=2.9.9
+pgvector>=0.2.4
+
+# Data processing
+pandas>=2.1.0
+numpy>=1.26.0
+
+# Graph (schema linking)
+networkx>=3.2.0
+
+# LSH entity matching
+datasketch>=1.6.0
+
+# SQL parsing (safety)
+sqlparse>=0.5.0
+
+# YAML config
+pyyaml>=6.0.1
+
+# Async HTTP
+httpx>=0.25.0
+
+# Logging
+structlog>=23.2.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0

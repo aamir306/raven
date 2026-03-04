@@ -1,0 +1,21 @@
+Determine the best chart type for this query result.
+
+SQL: {sql}
+Column names and types: {column_info}
+Row count: {row_count}
+Sample values (first 3 rows): {sample_summary}
+
+Chart types:
+- NUMBER_CARD: single row, single numeric value
+- LINE_CHART: time column + numeric column(s), showing trend
+- BAR_CHART: categorical column + numeric column, comparing categories
+- HORIZONTAL_BAR: same as bar but > 8 categories
+- PIE_CHART: categorical + numeric that sums to approximately 100%
+- SCATTER: two numeric columns
+- TABLE: many columns or no clear visualization pattern
+
+Output format (strict):
+CHART_TYPE: <type>
+X_AXIS: <column_name> or NONE
+Y_AXIS: <column_name or list> or NONE
+TITLE: <descriptive chart title>

@@ -1,0 +1,284 @@
+"""
+pgvector wrapper for RAVEN embedding storage and similarity search.
+
+Manages four tables:
+- schema_embeddings   — table/column descriptions from dbt
+- question_embeddings — Metabase Q-SQL pairs for few-shot retrieval
+- glossary_embeddings — semantic model / business glossary terms
+- doc_embeddings      — documentation chunks (Word/PDF/Markdown/OpenMetadata)
+
+All embeddings use text-embedding-3-small (1536-dim) by default.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import numpy as np
+import psycopg2
+import psycopg2.extras
+import psycopg2.pool
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+EMBEDDING_DIM = 1536
+
+# Table definitions: (table_name, extra_columns_sql)
+_TABLES: dict[str, str] = {
+    "schema_embeddings": """
+        id SERIAL PRIMARY KEY,
+        table_name TEXT NOT NULL,
+        column_name TEXT,
+        description TEXT,
+        embedding vector({dim}),
+        metadata JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    """,
+    "question_embeddings": """
+        id SERIAL PRIMARY KEY,
+        question_text TEXT NOT NULL,
+        sql_query TEXT,
+        embedding vector({dim}),
+        source VARCHAR(100),
+        metadata JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    """,
+    "glossary_embeddings": """
+        id SERIAL PRIMARY KEY,
+        term TEXT NOT NULL,
+        definition TEXT,
+        sql_fragment TEXT,
+        synonyms TEXT[],
+        embedding vector({dim}),
+        metadata JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    """,
+    "doc_embeddings": """
+        id SERIAL PRIMARY KEY,
+        source_file TEXT,
+        table_ref TEXT,
+        content TEXT NOT NULL,
+        embedding vector({dim}),
+        doc_type VARCHAR(50),
+        metadata JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    """,
+}
+
+
+class PgVectorStore:
+    """pgvector CRUD client with connection pooling and cosine similarity search."""
+
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 5433,
+        dbname: str = "raven",
+        user: str = "raven",
+        password: str = "changeme",
+        min_connections: int = 2,
+        max_connections: int = 10,
+    ) -> None:
+        self._pool = psycopg2.pool.ThreadedConnectionPool(
+            minconn=min_connections,
+            maxconn=max_connections,
+            host=host,
+            port=port,
+            dbname=dbname,
+            user=user,
+            password=password,
+        )
+        logger.info("pgvector_pool_created", host=host, port=port, dbname=dbname)
+
+    # ------------------------------------------------------------------ #
+    # Initialization
+    # ------------------------------------------------------------------ #
+
+    def init_tables(self) -> None:
+        """Create the pgvector extension and all embedding tables if they don't exist."""
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                for table_name, columns_sql in _TABLES.items():
+                    ddl = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_sql.format(dim=EMBEDDING_DIM)});"
+                    cur.execute(ddl)
+                    # IVFFlat index for cosine similarity
+                    idx_name = f"idx_{table_name}_embedding"
+                    cur.execute(f"""
+                        CREATE INDEX IF NOT EXISTS {idx_name}
+                        ON {table_name}
+                        USING ivfflat (embedding vector_cosine_ops)
+                        WITH (lists = 100);
+                    """)
+            conn.commit()
+            logger.info("pgvector_tables_initialized", tables=list(_TABLES.keys()))
+        finally:
+            self._pool.putconn(conn)
+
+    # ------------------------------------------------------------------ #
+    # Insert
+    # ------------------------------------------------------------------ #
+
+    def insert(
+        self,
+        table: str,
+        text: str,
+        embedding: list[float],
+        metadata: dict[str, Any] | None = None,
+        **extra_columns: Any,
+    ) -> int:
+        """Insert a single embedding row and return its id."""
+        self._validate_table(table)
+        cols = list(extra_columns.keys()) + ["embedding"]
+        vals = list(extra_columns.values()) + [self._to_pgvector(embedding)]
+        if metadata:
+            cols.append("metadata")
+            vals.append(json.dumps(metadata))
+
+        placeholders = ", ".join(["%s"] * len(vals))
+        col_names = ", ".join(cols)
+        sql = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders}) RETURNING id;"
+
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, vals)
+                row_id = cur.fetchone()[0]
+            conn.commit()
+            return row_id
+        finally:
+            self._pool.putconn(conn)
+
+    def batch_insert(
+        self,
+        table: str,
+        items: list[dict[str, Any]],
+    ) -> int:
+        """Batch insert multiple rows.  Each item dict must include an ``embedding`` key.
+
+        Returns the number of rows inserted.
+        """
+        self._validate_table(table)
+        if not items:
+            return 0
+
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                for item in items:
+                    emb = item.pop("embedding")
+                    metadata = item.pop("metadata", None)
+                    cols = list(item.keys()) + ["embedding"]
+                    vals = list(item.values()) + [self._to_pgvector(emb)]
+                    if metadata:
+                        cols.append("metadata")
+                        vals.append(json.dumps(metadata))
+                    placeholders = ", ".join(["%s"] * len(vals))
+                    col_names = ", ".join(cols)
+                    cur.execute(
+                        f"INSERT INTO {table} ({col_names}) VALUES ({placeholders});",
+                        vals,
+                    )
+            conn.commit()
+            logger.info("pgvector_batch_insert", table=table, count=len(items))
+            return len(items)
+        finally:
+            self._pool.putconn(conn)
+
+    # ------------------------------------------------------------------ #
+    # Search
+    # ------------------------------------------------------------------ #
+
+    def search(
+        self,
+        table: str,
+        query_embedding: list[float],
+        top_k: int = 5,
+        filter_sql: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Cosine similarity search.  Returns top_k results ordered by similarity (descending).
+
+        Parameters
+        ----------
+        table:
+            One of the four embedding tables.
+        query_embedding:
+            The query vector (1536-dim).
+        top_k:
+            Number of results to return.
+        filter_sql:
+            Optional SQL WHERE clause fragment, e.g. ``"source = 'metabase'"``.
+        """
+        self._validate_table(table)
+        emb_str = self._to_pgvector(query_embedding)
+        where = f"WHERE {filter_sql}" if filter_sql else ""
+        sql = f"""
+            SELECT *, 1 - (embedding <=> %s) AS similarity
+            FROM {table}
+            {where}
+            ORDER BY embedding <=> %s
+            LIMIT %s;
+        """
+
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql, [emb_str, emb_str, top_k])
+                rows = cur.fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            self._pool.putconn(conn)
+
+    # ------------------------------------------------------------------ #
+    # Delete
+    # ------------------------------------------------------------------ #
+
+    def delete_by_source(self, table: str, source: str) -> int:
+        """Delete all rows where source/source_file matches — useful for re-indexing."""
+        self._validate_table(table)
+        col = "source_file" if table == "doc_embeddings" else "source"
+        sql = f"DELETE FROM {table} WHERE {col} = %s;"
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, [source])
+                count = cur.rowcount
+            conn.commit()
+            logger.info("pgvector_delete_by_source", table=table, source=source, deleted=count)
+            return count
+        finally:
+            self._pool.putconn(conn)
+
+    def truncate(self, table: str) -> None:
+        """Truncate an entire table (for full re-index)."""
+        self._validate_table(table)
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"TRUNCATE TABLE {table};")
+            conn.commit()
+            logger.info("pgvector_truncated", table=table)
+        finally:
+            self._pool.putconn(conn)
+
+    # ------------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _validate_table(table: str) -> None:
+        if table not in _TABLES:
+            raise ValueError(f"Unknown table '{table}'.  Must be one of {list(_TABLES.keys())}")
+
+    @staticmethod
+    def _to_pgvector(embedding: list[float]) -> str:
+        """Convert a Python list to pgvector literal ``[0.1,0.2,…]``."""
+        return "[" + ",".join(str(round(v, 8)) for v in embedding) + "]"
+
+    def close(self) -> None:
+        """Close the connection pool."""
+        self._pool.closeall()
+        logger.info("pgvector_pool_closed")

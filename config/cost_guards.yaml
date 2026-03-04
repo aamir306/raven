@@ -1,0 +1,25 @@
+# RAVEN — config/cost_guards.yaml
+# Query cost limits and partition requirements
+
+thresholds:
+  max_scan_gb: 500
+  max_execution_seconds: 120
+  max_rows: 10000
+
+partition_tables:
+  # Tables that MUST have partition filter in WHERE
+  # Format: "catalog.schema.table": "partition_column"
+  # Populate with your actual partitioned tables
+  # Example:
+  # "cdp.gold_dbt.daily_active_users": "ds"
+  # "cdp.gold_dbt.orders": "order_date"
+  # "cdp.gold_dbt.video_stats": "ds"
+  # "cdp.silver.events": "dt"
+  # "cdp.silver.user_sessions": "ds"
+
+bronze_alternatives:
+  # When user references a bronze table, suggest gold/silver alternative
+  # Format: "bronze_table": "preferred_table"
+  # Example:
+  # "cdp.bronze.raw_events": "cdp.silver.events"
+  # "cdp.bronze.raw_orders": "cdp.gold_dbt.orders"

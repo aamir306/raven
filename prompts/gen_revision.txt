@@ -1,0 +1,17 @@
+The SQL query below failed with an error. Fix it.
+
+Original question: {user_question}
+Schema: {pruned_schema}
+
+Failed SQL:
+{failed_sql}
+
+Error type: {error_category}.{error_subtype}
+Error message: {error_message}
+
+{trino_dialect_rules}
+
+Fix the SQL to resolve the {error_category} error.
+Specific guidance for {error_subtype}: {error_description}
+
+Output the corrected SQL query only. No explanation.

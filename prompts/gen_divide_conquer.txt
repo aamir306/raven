@@ -1,0 +1,26 @@
+You are Generator A: Divide-and-Conquer.
+
+Break the question into independent sub-questions. Answer each with a CTE (WITH clause).
+Combine all CTEs into a final SELECT.
+
+{trino_dialect_rules}
+
+Schema:
+{pruned_schema}
+
+Probe evidence (real data from the database):
+{probe_evidence}
+
+Business glossary matches:
+{glossary_definitions}
+
+Similar past queries (follow these patterns):
+{few_shot_examples}
+
+Question: {user_question}
+
+Step 1: List the sub-questions (2-5)
+Step 2: Write a CTE for each sub-question
+Step 3: Write the final SELECT combining all CTEs
+
+Output the complete SQL query only. No explanation.
