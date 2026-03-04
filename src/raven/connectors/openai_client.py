@@ -2,30 +2,40 @@
 OpenAI API client for RAVEN with model routing and cost tracking.
 
 Features:
+- Supports both Azure OpenAI and direct OpenAI API
 - Automatic model selection per pipeline stage via config/model_routing.yaml
 - Retry with exponential backoff on rate-limit and timeout errors
 - Per-call cost tracking (input/output tokens × pricing)
 - Embedding support (text-embedding-3-small, 1536-dim)
-- Async-first (uses openai.AsyncOpenAI)
+- Async-first (uses openai.AsyncAzureOpenAI or openai.AsyncOpenAI)
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from pathlib import Path
 from typing import Any
 
 import structlog
 import yaml
-from openai import AsyncOpenAI, RateLimitError, APITimeoutError, APIError
+from openai import (
+    AsyncAzureOpenAI,
+    AsyncOpenAI,
+    RateLimitError,
+    APITimeoutError,
+    APIError,
+)
 
 logger = structlog.get_logger(__name__)
 
 # Pricing per 1M tokens (as of March 2026)
 _PRICING: dict[str, dict[str, float]] = {
     "gpt-4o": {"input": 2.50, "output": 10.00},
+    "gpt4o": {"input": 2.50, "output": 10.00},  # Azure deployment name
     "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    "gpt4o-mini": {"input": 0.15, "output": 0.60},  # Azure deployment name
     "text-embedding-3-small": {"input": 0.02, "output": 0.0},
     "text-embedding-3-large": {"input": 0.13, "output": 0.0},
 }
@@ -38,12 +48,44 @@ _BACKOFF_BASE = 1  # seconds
 
 
 class OpenAIClient:
-    """Async OpenAI client with per-stage model routing and cost tracking."""
+    """Async OpenAI client with per-stage model routing and cost tracking.
 
-    def __init__(self, api_key: str, config_path: Path | None = None) -> None:
-        self._client = AsyncOpenAI(api_key=api_key)
+    Supports Azure OpenAI when AZURE_OPENAI_API_KEY and AZURE_OPENAI_API_BASE
+    env vars are set.  Falls back to direct OpenAI API otherwise.
+    """
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        config_path: Path | None = None,
+    ) -> None:
         self._config = self._load_config(config_path or _CONFIG_PATH)
         self._cost_log: list[dict[str, Any]] = []
+
+        # Detect Azure vs direct OpenAI
+        azure_key = api_key or os.getenv("AZURE_OPENAI_API_KEY", "")
+        azure_base = os.getenv("AZURE_OPENAI_API_BASE", "")
+        azure_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-03-01-preview")
+
+        if azure_key and azure_base:
+            self._client = AsyncAzureOpenAI(
+                api_key=azure_key,
+                azure_endpoint=azure_base,
+                api_version=azure_version,
+            )
+            self._provider = "azure"
+            logger.info(
+                "openai_client_init",
+                provider="azure",
+                endpoint=azure_base[:60],
+                api_version=azure_version,
+            )
+        else:
+            # Fallback to direct OpenAI
+            direct_key = api_key or os.getenv("OPENAI_API_KEY", "")
+            self._client = AsyncOpenAI(api_key=direct_key)
+            self._provider = "openai"
+            logger.info("openai_client_init", provider="openai")
 
     # ------------------------------------------------------------------ #
     # Config

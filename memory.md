@@ -142,12 +142,32 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 
 ## Technical Constraints (Locked)
 
-- **LLM:** OpenAI API only (GPT-4o + GPT-4o-mini). No GPU.
+- **LLM:** Azure OpenAI (GPT-4o deployment `gpt4o` via APIM gateway). No GPU.
 - **Data privacy:** Schema/metadata → API OK. Row values → NEVER to API.
 - **DB:** Trino-Iceberg, 1,200+ tables, 155 schemas, bronze/silver/gold
-- **Vector DB:** pgvector (existing)
+- **Vector DB:** pgvector on AWS RDS PostgreSQL (antondb)
 - **Infra:** Docker on K8s, 1-2 engineers, Claude Opus via Claude Code
 - **Budget:** No hard cap, target < $3,000/month at full scale
+
+---
+
+## 🔒 SECURITY RESTRICTIONS — MANDATORY
+
+**NEVER commit credentials to Git. NEVER include secrets in any committed file.**
+
+- All credentials live in `.env` (which is in `.gitignore`)
+- `.env.example` contains placeholder values only (`REPLACE_ME`, `changeme`, etc.)
+- **NEVER** put real API keys, passwords, or connection strings in:
+  - Python source files
+  - YAML/JSON config files
+  - Docker Compose files
+  - K8s manifests (use `stringData: REPLACE_ME`)
+  - Markdown documentation
+  - Commit messages
+  - Test files
+- Before every `git add` / `git commit`, verify no secrets are staged
+- Use `os.getenv()` / `dotenv` to read credentials at runtime
+- Real credentials: Azure OpenAI key, Trino password, pgvector password — all in `.env` only
 
 ---
 

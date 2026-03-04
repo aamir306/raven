@@ -41,6 +41,9 @@ data/*.pickle
 logs/
 *.log
 
+# Scripts with connection tests (may reference private infra)
+scripts/test_*.py
+
 # Docker
 docker-compose.override.yml
 

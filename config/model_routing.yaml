@@ -1,80 +1,86 @@
 # RAVEN — config/model_routing.yaml
 # Defines which LLM model to use for each pipeline stage
+#
+# Azure OpenAI: use deployment names (e.g. "gpt4o") not canonical names
+# Direct OpenAI: use canonical names (e.g. "gpt-4o", "gpt-4o-mini")
+#
+# Current setup: Azure OpenAI with a single "gpt4o" deployment.
+# When a "gpt4o-mini" deployment is created, update stages below.
 
 stages:
   router:
-    model: gpt-4o-mini
+    model: gpt4o
     max_tokens: 50
     temperature: 0
     cost_per_call: 0.001
 
   information_retriever:
-    model: gpt-4o-mini
+    model: gpt4o
     max_tokens: 300
     temperature: 0
     cost_per_call: 0.001
 
   schema_selector:
     column_filter:
-      model: gpt-4o-mini
+      model: gpt4o
       max_tokens: 1000
       temperature: 0
       cost_per_call: 0.001
     table_selector:
-      model: gpt-4o-mini
+      model: gpt4o
       max_tokens: 800
       temperature: 0
       cost_per_call: 0.002
     column_pruner:
-      model: gpt-4o-mini
+      model: gpt4o
       max_tokens: 600
       temperature: 0
       cost_per_call: 0.001
 
   probe_planner:
-    model: gpt-4o-mini
+    model: gpt4o
     max_tokens: 500
     temperature: 0
     cost_per_call: 0.002
 
   sql_generator:
     simple:
-      model: gpt-4o-mini
+      model: gpt4o
       max_tokens: 2000
       temperature: 0.0
       cost_per_call: 0.003
     complex:
-      model: gpt-4o
+      model: gpt4o
       max_tokens: 4000
       temperature: 0.3
       cost_per_call: 0.020
 
   revision:
-    model: gpt-4o
+    model: gpt4o
     max_tokens: 4000
     temperature: 0
     cost_per_call: 0.020
 
   selection_agent:
-    model: gpt-4o-mini
+    model: gpt4o
     max_tokens: 200
     temperature: 0
     cost_per_call: 0.003
 
   error_taxonomy_checker:
-    model: gpt-4o-mini
+    model: gpt4o
     max_tokens: 500
     temperature: 0
     cost_per_call: 0.003
 
   chart_detector:
-    model: gpt-4o-mini
+    model: gpt4o
     max_tokens: 200
     temperature: 0
     cost_per_call: 0.001
 
   nl_summarizer:
-    model: gpt-4o-mini
+    model: gpt4o
     max_tokens: 300
     temperature: 0.3
     cost_per_call: 0.001

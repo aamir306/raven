@@ -10,16 +10,20 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 
 from .connectors.openai_client import OpenAIClient
 from .connectors.pgvector_store import PgVectorStore
 from .connectors.trino_connector import TrinoConnector
 from .pipeline import Pipeline
+
+# Load .env from project root
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +38,21 @@ async def lifespan(app: FastAPI):
 
     trino = TrinoConnector(
         host=os.getenv("TRINO_HOST", "localhost"),
-        port=int(os.getenv("TRINO_PORT", "8080")),
-        user=os.getenv("TRINO_USER", "raven"),
-        catalog=os.getenv("TRINO_CATALOG", "iceberg"),
-        schema=os.getenv("TRINO_SCHEMA", "gold_dbt"),
+        port=int(os.getenv("TRINO_PORT", "443")),
+        user=os.getenv("TRINO_USER", "admin"),
+        catalog=os.getenv("TRINO_CATALOG", "cdp"),
+        schema=os.getenv("TRINO_SCHEMA", "default"),
+        http_scheme=os.getenv("TRINO_HTTP_SCHEME", "https"),
+        password=os.getenv("TRINO_PASSWORD"),
+        ssl_insecure=os.getenv("TRINO_SSL_INSECURE", "").lower() in ("true", "1", "yes"),
     )
 
     pgvector = PgVectorStore(
         host=os.getenv("PGVECTOR_HOST", "localhost"),
-        port=int(os.getenv("PGVECTOR_PORT", "5433")),
-        database=os.getenv("PGVECTOR_DB", "raven"),
-        user=os.getenv("PGVECTOR_USER", "raven"),
-        password=os.getenv("PGVECTOR_PASSWORD", "raven_dev"),
+        port=int(os.getenv("PGVECTOR_PORT", "5432")),
+        dbname=os.getenv("PGVECTOR_DB", "antondb"),
+        user=os.getenv("PGVECTOR_USER", "postgres"),
+        password=os.getenv("PGVECTOR_PASSWORD", "changeme"),
     )
 
     openai_client = OpenAIClient()

@@ -41,6 +41,7 @@ class TrinoConnector:
         schema: str = "gold_dbt",
         http_scheme: str = "https",
         password: str | None = None,
+        ssl_insecure: bool = False,
         max_query_memory: str = "4GB",
         max_execution_time_seconds: int = 120,
         max_rows_returned: int = 10_000,
@@ -52,6 +53,7 @@ class TrinoConnector:
         self._schema = schema
         self._http_scheme = http_scheme
         self._password = password
+        self._ssl_insecure = ssl_insecure
         self._max_query_memory = max_query_memory
         self._max_execution_time_seconds = max_execution_time_seconds
         self._max_rows = max_rows_returned
@@ -63,7 +65,7 @@ class TrinoConnector:
     def _get_connection(self) -> trino.dbapi.Connection:
         """Create a new Trino connection."""
         auth = BasicAuthentication(self._user, self._password) if self._password else None
-        return trino.dbapi.connect(
+        kwargs: dict[str, Any] = dict(
             host=self._host,
             port=self._port,
             user=self._user,
@@ -73,6 +75,9 @@ class TrinoConnector:
             auth=auth,
             request_timeout=self._max_execution_time_seconds,
         )
+        if self._ssl_insecure:
+            kwargs["verify"] = False
+        return trino.dbapi.connect(**kwargs)
 
     def test_connection(self) -> bool:
         """Verify connectivity with ``SELECT 1``."""
