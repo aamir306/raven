@@ -1,0 +1,1602 @@
+[
+  {
+    "id": 1,
+    "question": "How many batches are currently active?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "Simple COUNT with WHERE status = 'active'"
+  },
+  {
+    "id": 2,
+    "question": "What is the total revenue from all orders?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "SUM(price) from gold_orders"
+  },
+  {
+    "id": 3,
+    "question": "How many draft batches do we have?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "COUNT with WHERE status = 'draft'"
+  },
+  {
+    "id": 4,
+    "question": "List the top 10 batches by student enrollment",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "JOIN batches to rooms, SUM(usercount), ORDER BY DESC LIMIT 10, TRY_CAST needed"
+  },
+  {
+    "id": 5,
+    "question": "What is the total revenue this month?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "SUM(price) with date filter on createdat for current month"
+  },
+  {
+    "id": 6,
+    "question": "How many students are enrolled in offline batches?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_offline_assigned_batch"],
+    "category": "offline",
+    "notes": "COUNT DISTINCT student_id WHERE is_active = true"
+  },
+  {
+    "id": 7,
+    "question": "Show me all batches for JEE exam",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "exam",
+    "notes": "SELECT with WHERE exam = 'JEE' or LIKE '%JEE%'"
+  },
+  {
+    "id": 8,
+    "question": "What is the average order value?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "AVG(price)"
+  },
+  {
+    "id": 9,
+    "question": "How many courses are available on the LMS platform?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_courses"],
+    "category": "content",
+    "notes": "COUNT(*) from gold_courses"
+  },
+  {
+    "id": 10,
+    "question": "What are the top 5 exams by number of batches?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "exam",
+    "notes": "GROUP BY exam, COUNT, ORDER BY DESC LIMIT 5"
+  },
+  {
+    "id": 11,
+    "question": "How many payments were processed last month?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_payments"],
+    "category": "payment",
+    "notes": "COUNT with date filter on createdat"
+  },
+  {
+    "id": 12,
+    "question": "What is the total amount collected through payments?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_payments"],
+    "category": "payment",
+    "notes": "SUM(amount) WHERE paid = true"
+  },
+  {
+    "id": 13,
+    "question": "Revenue breakdown by exam category",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "GROUP BY exam, SUM(price)"
+  },
+  {
+    "id": 14,
+    "question": "How many batch rooms have reached full capacity?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "COUNT WHERE usercount >= userlimit"
+  },
+  {
+    "id": 15,
+    "question": "Average number of lectures per active batch",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "lecture",
+    "notes": "JOIN batches to lecture info, COUNT lectures per batch, AVG, TRY_CAST needed"
+  },
+  {
+    "id": 16,
+    "question": "Show me monthly revenue trend for 2025",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "time_series",
+    "notes": "GROUP BY month, SUM(price), date_trunc or EXTRACT"
+  },
+  {
+    "id": 17,
+    "question": "Which batches were created in the last 7 days?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "WHERE createdat >= current_date - INTERVAL '7' DAY"
+  },
+  {
+    "id": 18,
+    "question": "What is the fill rate across all batch rooms?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "AVG(usercount / userlimit * 100) — fill rate formula"
+  },
+  {
+    "id": 19,
+    "question": "How many unique students have placed orders?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "student",
+    "notes": "COUNT(DISTINCT userid)"
+  },
+  {
+    "id": 20,
+    "question": "Top 10 batches by revenue",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "GROUP BY batchid, SUM(price), ORDER BY DESC LIMIT 10"
+  },
+  {
+    "id": 21,
+    "question": "How many NEET batches are active right now?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "exam",
+    "notes": "COUNT WHERE exam LIKE '%NEET%' AND status = 'active'"
+  },
+  {
+    "id": 22,
+    "question": "What is the total discount given across all orders?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "SUM(discount)"
+  },
+  {
+    "id": 23,
+    "question": "Show me daily order count for the past 30 days",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "time_series",
+    "notes": "GROUP BY DATE(createdat), COUNT, date filter"
+  },
+  {
+    "id": 24,
+    "question": "How many offline centers are we operating in?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_offline_assigned_batch"],
+    "category": "center",
+    "notes": "COUNT(DISTINCT center)"
+  },
+  {
+    "id": 25,
+    "question": "Which payment gateway is most popular?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_payments"],
+    "category": "payment",
+    "notes": "GROUP BY gateway, COUNT, ORDER BY DESC LIMIT 1"
+  },
+  {
+    "id": 26,
+    "question": "Revenue by exam category this month",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "GROUP BY exam, SUM(price), current month filter"
+  },
+  {
+    "id": 27,
+    "question": "List all inactive batches that had more than 1000 students enrolled",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms"],
+    "category": "batch",
+    "notes": "JOIN batches to rooms, SUM(usercount) > 1000, batch status = 'inactive', TRY_CAST"
+  },
+  {
+    "id": 28,
+    "question": "How many job guarantee program courses do we offer?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_courses"],
+    "category": "content",
+    "notes": "COUNT WHERE isjobguaranteeprogram = true"
+  },
+  {
+    "id": 29,
+    "question": "What is the average batch room fill rate for JEE batches?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms"],
+    "category": "exam",
+    "notes": "JOIN batches to rooms, filter exam='JEE', AVG(usercount/userlimit*100), TRY_CAST"
+  },
+  {
+    "id": 30,
+    "question": "How many students submitted lessons last week?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_coursesubmissions"],
+    "category": "student",
+    "notes": "COUNT(DISTINCT userid) with date filter"
+  },
+  {
+    "id": 31,
+    "question": "What is the total cashback distributed through orders?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "SUM(cashback)"
+  },
+  {
+    "id": 32,
+    "question": "Which batch has the most rooms?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "batch",
+    "notes": "GROUP BY batchid, COUNT, ORDER BY DESC LIMIT 1"
+  },
+  {
+    "id": 33,
+    "question": "How does revenue compare between NEET and JEE?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "comparison",
+    "notes": "GROUP BY exam, SUM(price), filter for NEET and JEE"
+  },
+  {
+    "id": 34,
+    "question": "Monthly trend of new batch creation over the last year",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "time_series",
+    "notes": "GROUP BY month, COUNT, date filter for last 12 months"
+  },
+  {
+    "id": 35,
+    "question": "Top 20 users by total order value",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "student",
+    "notes": "GROUP BY userid, SUM(price), ORDER BY DESC LIMIT 20"
+  },
+  {
+    "id": 36,
+    "question": "What are the top 5 cohorts by revenue?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "GROUP BY cohort, SUM(price), ORDER BY DESC LIMIT 5"
+  },
+  {
+    "id": 37,
+    "question": "Show me a breakdown of batch types across all active batches",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "GROUP BY type, COUNT WHERE status = 'active'"
+  },
+  {
+    "id": 38,
+    "question": "How many lectures are scheduled for batches starting this month?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "lecture",
+    "notes": "JOIN batches to lectures, filter startdate in current month, COUNT"
+  },
+  {
+    "id": 39,
+    "question": "What is the conversion rate from enrollment to payment?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.central.gold_batch_rooms", "cdp.cdp_revenue.gold_orders"],
+    "category": "funnel",
+    "notes": "Compare enrolled users to paying users, calculate percentage"
+  },
+  {
+    "id": 40,
+    "question": "How many orders used coupon discounts?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "COUNT WHERE coupondiscount > 0"
+  },
+  {
+    "id": 41,
+    "question": "Which offline centers have the most students?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_offline_assigned_batch"],
+    "category": "center",
+    "notes": "GROUP BY center, COUNT(DISTINCT student_id), ORDER BY DESC"
+  },
+  {
+    "id": 42,
+    "question": "Average revenue per student in NEET batches",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders", "cdp.cdp_revenue.gold_batches"],
+    "category": "revenue",
+    "notes": "JOIN orders to batches, filter exam NEET, SUM(price)/COUNT(DISTINCT userid)"
+  },
+  {
+    "id": 43,
+    "question": "What is the week-over-week growth in orders?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "time_series",
+    "notes": "Window function LAG with weekly aggregation, calculate growth %"
+  },
+  {
+    "id": 44,
+    "question": "Show me all batches that have zero enrollment",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "LEFT JOIN batches to rooms, WHERE SUM(usercount) = 0 or NULL"
+  },
+  {
+    "id": 45,
+    "question": "Which exam has the highest average batch price?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.cdp_revenue.gold_orders"],
+    "category": "exam",
+    "notes": "JOIN batches to orders, GROUP BY exam, AVG(price), ORDER BY DESC LIMIT 1"
+  },
+  {
+    "id": 46,
+    "question": "How many students attend offline classes on average per day?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_attendance_details"],
+    "category": "offline",
+    "notes": "COUNT DISTINCT reg_no per schedule_date, then AVG"
+  },
+  {
+    "id": 47,
+    "question": "What percentage of payments are successful?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_payments"],
+    "category": "payment",
+    "notes": "COUNT WHERE paid = true / COUNT(*) * 100"
+  },
+  {
+    "id": 48,
+    "question": "Revenue distribution by order source page",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "analytics",
+    "notes": "GROUP BY orderbypage, SUM(price)"
+  },
+  {
+    "id": 49,
+    "question": "How many batches have ended but still have active status?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "COUNT WHERE enddate < current_date AND status = 'active'"
+  },
+  {
+    "id": 50,
+    "question": "Top 10 offline batches by number of assigned students",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_offline_assigned_batch"],
+    "category": "offline",
+    "notes": "GROUP BY batch, COUNT(DISTINCT student_id), ORDER BY DESC LIMIT 10"
+  },
+  {
+    "id": 51,
+    "question": "What is the total wallet amount used by students in their orders?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "SUM(wallet)"
+  },
+  {
+    "id": 52,
+    "question": "How many courses were created in 2025?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_courses"],
+    "category": "content",
+    "notes": "COUNT with date filter on createdat for year 2025"
+  },
+  {
+    "id": 53,
+    "question": "Show me how many lessons each student has completed on average",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_coursesubmissions"],
+    "category": "student",
+    "notes": "COUNT per userid, then AVG"
+  },
+  {
+    "id": 54,
+    "question": "Compare online vs offline batch counts",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "comparison",
+    "notes": "GROUP BY type, COUNT"
+  },
+  {
+    "id": 55,
+    "question": "Which batches generated over 1 crore in revenue?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "GROUP BY batchid, SUM(price) > 10000000, HAVING clause"
+  },
+  {
+    "id": 56,
+    "question": "What is the average time between batch creation and first order?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.cdp_revenue.gold_orders"],
+    "category": "analytics",
+    "notes": "JOIN batches to orders, MIN(order createdat) - batch createdat, AVG"
+  },
+  {
+    "id": 57,
+    "question": "How many batch rooms are currently active?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "COUNT WHERE status = 'active'"
+  },
+  {
+    "id": 58,
+    "question": "Show me payment amounts by checkout type",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_payments"],
+    "category": "payment",
+    "notes": "GROUP BY checkouttype, SUM(amount)"
+  },
+  {
+    "id": 59,
+    "question": "What is the month-over-month revenue growth rate?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "time_series",
+    "notes": "Monthly SUM(price), window function LAG to compare months, calculate % change"
+  },
+  {
+    "id": 60,
+    "question": "How many students are active in each offline center?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_offline_assigned_batch"],
+    "category": "center",
+    "notes": "GROUP BY center, COUNT(DISTINCT student_id) WHERE is_active = true"
+  },
+  {
+    "id": 61,
+    "question": "Which faculty organization delivers the most lectures?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "faculty",
+    "notes": "GROUP BY org_name, COUNT, ORDER BY DESC LIMIT 1 — org_name as faculty proxy"
+  },
+  {
+    "id": 62,
+    "question": "What was the peak revenue day in the last quarter?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "GROUP BY DATE(createdat), SUM(price), ORDER BY DESC LIMIT 1, last quarter filter"
+  },
+  {
+    "id": 63,
+    "question": "List all exam categories and the count of batches in each",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "exam",
+    "notes": "GROUP BY exam, COUNT"
+  },
+  {
+    "id": 64,
+    "question": "How many students have submitted more than 50 lessons?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_coursesubmissions"],
+    "category": "student",
+    "notes": "GROUP BY userid, COUNT > 50, HAVING clause, count outer"
+  },
+  {
+    "id": 65,
+    "question": "What is the revenue per exam per month for 2025?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "time_series",
+    "notes": "GROUP BY exam, month, SUM(price), year 2025 filter"
+  },
+  {
+    "id": 66,
+    "question": "Show me the top batch by enrollment for each exam category",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "JOIN, GROUP BY exam + batchid, ROW_NUMBER() OVER partition by exam, LIMIT 1 per exam"
+  },
+  {
+    "id": 67,
+    "question": "What is the total coupon discount amount given this year?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "SUM(coupondiscount) with year filter"
+  },
+  {
+    "id": 68,
+    "question": "How many distinct batches have lectures scheduled?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "lecture",
+    "notes": "COUNT(DISTINCT batch_id)"
+  },
+  {
+    "id": 69,
+    "question": "Compare revenue from batch orders vs LMS payments",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders", "cdp.lms.gold_payments"],
+    "category": "comparison",
+    "notes": "Two separate SUM queries combined via UNION or CTE"
+  },
+  {
+    "id": 70,
+    "question": "How many students enrolled in both online and offline batches?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders", "cdp.offline.gold_offline_assigned_batch"],
+    "category": "funnel",
+    "notes": "INTERSECT or JOIN on userid/student_id"
+  },
+  {
+    "id": 71,
+    "question": "What is the average room capacity (userlimit) per batch?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "AVG(userlimit)"
+  },
+  {
+    "id": 72,
+    "question": "Show me the batch-wise attendance rate for offline students",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_attendance_details"],
+    "category": "offline",
+    "notes": "GROUP BY batch_id, attendance calculations"
+  },
+  {
+    "id": 73,
+    "question": "Which plan IDs have the highest revenue?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "analytics",
+    "notes": "GROUP BY planid, SUM(price), ORDER BY DESC"
+  },
+  {
+    "id": 74,
+    "question": "How many students placed repeat orders (more than one)?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "student",
+    "notes": "GROUP BY userid HAVING COUNT > 1, count the outer"
+  },
+  {
+    "id": 75,
+    "question": "What is the average number of students per offline center?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_offline_assigned_batch"],
+    "category": "center",
+    "notes": "COUNT(DISTINCT student_id) per center, then AVG"
+  },
+  {
+    "id": 76,
+    "question": "Revenue contribution of each cohort as percentage of total",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "analytics",
+    "notes": "SUM(price) per cohort / SUM(price) total * 100, window function or subquery"
+  },
+  {
+    "id": 77,
+    "question": "Which faculty organizations deliver the most lectures in Hindi?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "faculty",
+    "notes": "WHERE language = 'Hindi', GROUP BY org_name, COUNT, ORDER BY DESC"
+  },
+  {
+    "id": 78,
+    "question": "What is the distribution of lesson types in student submissions?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_coursesubmissions"],
+    "category": "content",
+    "notes": "GROUP BY lessontype, COUNT"
+  },
+  {
+    "id": 79,
+    "question": "Show me the weekly trend of new orders in January 2026",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "time_series",
+    "notes": "GROUP BY week, COUNT, date filter for Jan 2026"
+  },
+  {
+    "id": 80,
+    "question": "Batches that have both online and offline presence",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms", "cdp.offline.gold_offline_assigned_batch"],
+    "category": "comparison",
+    "notes": "JOIN batches to both rooms and offline, find common batch IDs"
+  },
+  {
+    "id": 81,
+    "question": "How many new batches were launched per month in 2025?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "time_series",
+    "notes": "GROUP BY month of createdat, COUNT, year 2025"
+  },
+  {
+    "id": 82,
+    "question": "Top 10 users by total payment amount on LMS",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_payments"],
+    "category": "payment",
+    "notes": "GROUP BY userid, SUM(amount) WHERE paid = true, ORDER BY DESC LIMIT 10"
+  },
+  {
+    "id": 83,
+    "question": "What is the average fill rate for NEET batches vs JEE batches?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms"],
+    "category": "comparison",
+    "notes": "JOIN batches to rooms, GROUP BY exam, AVG(usercount/userlimit*100), filter NEET and JEE"
+  },
+  {
+    "id": 84,
+    "question": "How many lectures have been delivered per faculty organization?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "faculty",
+    "notes": "GROUP BY org_name, COUNT — org_name represents faculty/teaching organizations"
+  },
+  {
+    "id": 85,
+    "question": "Show me batch rooms where enrollment exceeded the limit by more than 10%",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "WHERE usercount > userlimit * 1.1"
+  },
+  {
+    "id": 86,
+    "question": "What is the revenue from wallet payments vs direct payments?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "comparison",
+    "notes": "SUM(wallet) vs SUM(price - wallet)"
+  },
+  {
+    "id": 87,
+    "question": "Which offline subjects have the most schedule entries?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_schedule_content_details"],
+    "category": "offline",
+    "notes": "GROUP BY subject, COUNT, ORDER BY DESC"
+  },
+  {
+    "id": 88,
+    "question": "What batches have the highest user engagement based on chat count?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_crjr_user_stats"],
+    "category": "analytics",
+    "notes": "GROUP BY batchid, SUM(totalchatcount), ORDER BY DESC"
+  },
+  {
+    "id": 89,
+    "question": "Show me the revenue funnel: how many users enrolled vs how many paid?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.central.gold_batch_rooms", "cdp.cdp_revenue.gold_orders"],
+    "category": "funnel",
+    "notes": "Distinct user counts from both enrollment and orders"
+  },
+  {
+    "id": 90,
+    "question": "Total revenue per batch including batch name",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "JOIN batches to orders on _id = batchid (TRY_CAST), GROUP BY batch name, SUM(price)"
+  },
+  {
+    "id": 91,
+    "question": "Which batch codes have more than 500 orders?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.cdp_revenue.gold_orders"],
+    "category": "batch",
+    "notes": "JOIN batches to orders, GROUP BY batchcode, HAVING COUNT > 500"
+  },
+  {
+    "id": 92,
+    "question": "What is the average payment amount per course?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.lms.gold_payments", "cdp.lms.gold_courses"],
+    "category": "payment",
+    "notes": "JOIN payments to courses on courseid = _id, GROUP BY course title, AVG(amount)"
+  },
+  {
+    "id": 93,
+    "question": "How does offline attendance vary by region?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_schedule_content_details"],
+    "category": "offline",
+    "notes": "GROUP BY region, COUNT"
+  },
+  {
+    "id": 94,
+    "question": "What is the cumulative revenue trend for 2025?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "time_series",
+    "notes": "Running SUM(price) using window function SUM() OVER (ORDER BY month)"
+  },
+  {
+    "id": 95,
+    "question": "Show the daily active users engaging with batches in the last 30 days",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_crjr_user_stats"],
+    "category": "analytics",
+    "notes": "GROUP BY _date, COUNT(DISTINCT userid), date filter"
+  },
+  {
+    "id": 96,
+    "question": "Which centers have scheduled the most classes this week?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_schedule_content_details"],
+    "category": "center",
+    "notes": "GROUP BY center, COUNT, date filter on schedule_date, ORDER BY DESC"
+  },
+  {
+    "id": 97,
+    "question": "How many batches were started per quarter in 2025?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "time_series",
+    "notes": "GROUP BY quarter of startdate, COUNT, year 2025"
+  },
+  {
+    "id": 98,
+    "question": "Revenue rank of each exam category",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "analytics",
+    "notes": "RANK() OVER (ORDER BY SUM(price) DESC), GROUP BY exam"
+  },
+  {
+    "id": 99,
+    "question": "How many students transitioned from offline to online batches?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.offline.gold_offline_assigned_batch", "cdp.cdp_revenue.gold_orders"],
+    "category": "funnel",
+    "notes": "Students in offline assigned batch who also appear in online orders"
+  },
+  {
+    "id": 100,
+    "question": "What is the student retention rate across cohorts?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "funnel",
+    "notes": "Group users by first order cohort, measure repeat orders, calculate retention %"
+  },
+  {
+    "id": 101,
+    "question": "How many batches have both a start date and end date in 2025?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "WHERE YEAR(startdate)=2025 AND YEAR(enddate)=2025"
+  },
+  {
+    "id": 102,
+    "question": "Show me the top 15 batch rooms by fill rate percentage",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "usercount/userlimit*100, ORDER BY DESC LIMIT 15"
+  },
+  {
+    "id": 103,
+    "question": "What is the average duration of batches in days?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "AVG(enddate - startdate)"
+  },
+  {
+    "id": 104,
+    "question": "How many unique users interacted with the platform each day this month?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_crjr_user_stats"],
+    "category": "analytics",
+    "notes": "GROUP BY _date, COUNT(DISTINCT userid), current month filter"
+  },
+  {
+    "id": 105,
+    "question": "Which faculty organization has the most active lecture batches?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "faculty",
+    "notes": "WHERE batch_status = 'active', GROUP BY org_name, COUNT, ORDER BY DESC LIMIT 1"
+  },
+  {
+    "id": 106,
+    "question": "What is the total revenue from orders placed via the app versus web?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "comparison",
+    "notes": "GROUP BY orderbypage, SUM(price)"
+  },
+  {
+    "id": 107,
+    "question": "Show me the top 10 courses by number of payments received",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.lms.gold_payments", "cdp.lms.gold_courses"],
+    "category": "content",
+    "notes": "JOIN payments to courses, GROUP BY course title, COUNT, ORDER BY DESC LIMIT 10"
+  },
+  {
+    "id": 108,
+    "question": "How does batch enrollment compare month-over-month?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "time_series",
+    "notes": "SUM(usercount) per month, LAG window function for comparison"
+  },
+  {
+    "id": 109,
+    "question": "Which offline center in Delhi has the highest student attendance?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_attendance_details"],
+    "category": "center",
+    "notes": "Filter by center LIKE '%Delhi%', COUNT attendance, ORDER BY DESC LIMIT 1"
+  },
+  {
+    "id": 110,
+    "question": "How much revenue did we make from UPSC batches?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.cdp_revenue.gold_orders"],
+    "category": "exam",
+    "notes": "JOIN batches to orders, filter exam LIKE '%UPSC%', SUM(price)"
+  },
+  {
+    "id": 111,
+    "question": "What is the average number of onstage appearances per user per batch?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_crjr_user_stats"],
+    "category": "analytics",
+    "notes": "AVG(onstage_times)"
+  },
+  {
+    "id": 112,
+    "question": "Show me batches ending in the next 30 days",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "WHERE enddate BETWEEN current_date AND current_date + INTERVAL '30' DAY"
+  },
+  {
+    "id": 113,
+    "question": "What is the percentage of orders with zero discount?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "analytics",
+    "notes": "COUNT(WHERE discount = 0) / COUNT(*) * 100"
+  },
+  {
+    "id": 114,
+    "question": "How many correct poll answers were recorded per batch?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_crjr_user_stats"],
+    "category": "analytics",
+    "notes": "GROUP BY batchid, SUM(correct_polls_batch)"
+  },
+  {
+    "id": 115,
+    "question": "List all courses that are job guarantee programs with their descriptions",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_courses"],
+    "category": "content",
+    "notes": "SELECT title, description WHERE isjobguaranteeprogram = true"
+  },
+  {
+    "id": 116,
+    "question": "What is the revenue from SSC exam batches for each quarter of 2025?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.cdp_revenue.gold_orders"],
+    "category": "exam",
+    "notes": "JOIN batches to orders, filter exam SSC, GROUP BY quarter, SUM(price)"
+  },
+  {
+    "id": 117,
+    "question": "How many batches are in each status (active, inactive, draft)?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "GROUP BY status, COUNT"
+  },
+  {
+    "id": 118,
+    "question": "What is the average student count per room for active batches?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "JOIN batches to rooms, filter active, AVG(usercount), TRY_CAST"
+  },
+  {
+    "id": 119,
+    "question": "Show me the top 5 payment gateways by total amount processed",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_payments"],
+    "category": "payment",
+    "notes": "GROUP BY gateway, SUM(amount), ORDER BY DESC LIMIT 5"
+  },
+  {
+    "id": 120,
+    "question": "How many orders were placed per day in February 2026?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "time_series",
+    "notes": "GROUP BY DATE(createdat), COUNT, date filter Feb 2026"
+  },
+  {
+    "id": 121,
+    "question": "What is the median order price?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "analytics",
+    "notes": "APPROX_PERCENTILE or PERCENTILE_CONT(0.5), Trino specific"
+  },
+  {
+    "id": 122,
+    "question": "Batch names and their total enrollment count where enrollment exceeds 5000",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "JOIN batches to rooms, GROUP BY batch name, SUM(usercount) > 5000"
+  },
+  {
+    "id": 123,
+    "question": "What is the split between Hindi and English language lecture batches?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "lecture",
+    "notes": "GROUP BY language, COUNT"
+  },
+  {
+    "id": 124,
+    "question": "Revenue from new users vs returning users this quarter",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "comparison",
+    "notes": "CTE to identify first order date per user, classify new vs returning, SUM(price)"
+  },
+  {
+    "id": 125,
+    "question": "Which faculty organizations cover the most diverse exam categories?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "faculty",
+    "notes": "GROUP BY org_name, COUNT(DISTINCT new_exam_category), ORDER BY DESC"
+  },
+  {
+    "id": 126,
+    "question": "Find the total number of scheduled offline classes per month in 2025",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_schedule_content_details"],
+    "category": "offline",
+    "notes": "GROUP BY month of schedule_date, COUNT, year 2025"
+  },
+  {
+    "id": 127,
+    "question": "What is the per-student revenue for each batch?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders", "cdp.central.gold_batch_rooms"],
+    "category": "analytics",
+    "notes": "SUM(price) per batch / SUM(usercount) per batch, JOIN on batchid"
+  },
+  {
+    "id": 128,
+    "question": "How many students have never placed an order but are enrolled in a batch room?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.central.gold_batch_rooms", "cdp.cdp_revenue.gold_orders"],
+    "category": "funnel",
+    "notes": "Compare users in batch rooms vs users in orders, LEFT JOIN / NOT EXISTS"
+  },
+  {
+    "id": 129,
+    "question": "Show me the busiest hours for offline attendance based on punch times",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_attendance_details"],
+    "category": "offline",
+    "notes": "EXTRACT HOUR from punch_time, GROUP BY hour, COUNT, ORDER BY DESC"
+  },
+  {
+    "id": 130,
+    "question": "Which batch type generates the most revenue?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.cdp_revenue.gold_orders"],
+    "category": "batch",
+    "notes": "JOIN batches to orders, GROUP BY type, SUM(price), ORDER BY DESC LIMIT 1"
+  },
+  {
+    "id": 131,
+    "question": "How many tests have been created per organization?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_test_matview"],
+    "category": "exam",
+    "notes": "GROUP BY org_name, COUNT"
+  },
+  {
+    "id": 132,
+    "question": "What is the 7-day moving average of daily revenue?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "time_series",
+    "notes": "Daily SUM(price), AVG() OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)"
+  },
+  {
+    "id": 133,
+    "question": "How many offline batches currently have active students?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_offline_assigned_batch"],
+    "category": "offline",
+    "notes": "COUNT(DISTINCT batch) WHERE is_active = true"
+  },
+  {
+    "id": 134,
+    "question": "What is the average number of orders per user?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "student",
+    "notes": "COUNT(*) / COUNT(DISTINCT userid)"
+  },
+  {
+    "id": 135,
+    "question": "Show me revenue by plan ID for the top 10 plans",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "GROUP BY planid, SUM(price), ORDER BY DESC LIMIT 10"
+  },
+  {
+    "id": 136,
+    "question": "Which courses have more than 100 payments but less than 50% success rate?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.lms.gold_payments", "cdp.lms.gold_courses"],
+    "category": "payment",
+    "notes": "JOIN payments to courses, HAVING COUNT > 100 AND paid rate < 0.5"
+  },
+  {
+    "id": 137,
+    "question": "How many batches were created each weekday?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "GROUP BY DAY_OF_WEEK(createdat), COUNT"
+  },
+  {
+    "id": 138,
+    "question": "What is the enrollment trend for JEE batches over the last 6 months?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms"],
+    "category": "time_series",
+    "notes": "JOIN, filter exam JEE, GROUP BY month, SUM(usercount)"
+  },
+  {
+    "id": 139,
+    "question": "How many faculty organizations are delivering lectures for each exam?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "faculty",
+    "notes": "GROUP BY exam, COUNT(DISTINCT org_name)"
+  },
+  {
+    "id": 140,
+    "question": "Which exam categories have no active batches?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "exam",
+    "notes": "Subquery or HAVING: exams where COUNT(CASE WHEN status='active') = 0"
+  },
+  {
+    "id": 141,
+    "question": "What is the total revenue from orders placed on weekends vs weekdays?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "comparison",
+    "notes": "CASE WHEN DOW IN (6,7) THEN 'Weekend' ELSE 'Weekday', SUM(price)"
+  },
+  {
+    "id": 142,
+    "question": "How many unique students submitted course work in each month of 2025?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_coursesubmissions"],
+    "category": "student",
+    "notes": "GROUP BY month, COUNT(DISTINCT userid), year 2025"
+  },
+  {
+    "id": 143,
+    "question": "Average payment amount by gateway for successful payments only",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_payments"],
+    "category": "payment",
+    "notes": "WHERE paid = true, GROUP BY gateway, AVG(amount)"
+  },
+  {
+    "id": 144,
+    "question": "Which active batches have the longest duration (start to end)?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "WHERE status = 'active', enddate - startdate, ORDER BY DESC LIMIT 10"
+  },
+  {
+    "id": 145,
+    "question": "What is the total enrollment across all NEET batch rooms?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "JOIN batches to rooms, filter exam NEET, SUM(usercount)"
+  },
+  {
+    "id": 146,
+    "question": "How many new courses were launched per quarter?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_courses"],
+    "category": "content",
+    "notes": "GROUP BY quarter of createdat, COUNT"
+  },
+  {
+    "id": 147,
+    "question": "Revenue per student for the top 20 batches",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders", "cdp.central.gold_batch_rooms"],
+    "category": "analytics",
+    "notes": "SUM(price)/SUM(usercount) per batchid, ORDER BY DESC LIMIT 20, JOIN"
+  },
+  {
+    "id": 148,
+    "question": "Show me the percentage of batches that are active vs inactive vs draft",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "COUNT per status / total COUNT * 100"
+  },
+  {
+    "id": 149,
+    "question": "What is the day with the highest number of payments in the last month?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_payments"],
+    "category": "payment",
+    "notes": "GROUP BY DATE(createdat), COUNT, ORDER BY DESC LIMIT 1, month filter"
+  },
+  {
+    "id": 150,
+    "question": "How many students are assigned to more than one offline batch?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_offline_assigned_batch"],
+    "category": "student",
+    "notes": "GROUP BY student_id, HAVING COUNT(DISTINCT batch) > 1"
+  },
+  {
+    "id": 151,
+    "question": "Which batch rooms have the lowest fill rate (under 10%)?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "WHERE usercount/userlimit*100 < 10, requires userlimit > 0"
+  },
+  {
+    "id": 152,
+    "question": "Rank all faculty organizations by total lecture count",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "faculty",
+    "notes": "RANK() OVER (ORDER BY COUNT DESC), GROUP BY org_name"
+  },
+  {
+    "id": 153,
+    "question": "What is the average cashback per order for each exam?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "exam",
+    "notes": "GROUP BY exam, AVG(cashback)"
+  },
+  {
+    "id": 154,
+    "question": "Show me the number of lectures by batch type (online/offline)",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "lecture",
+    "notes": "GROUP BY batch_type, COUNT"
+  },
+  {
+    "id": 155,
+    "question": "Which 10 users have the highest total chat count across all batches?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_crjr_user_stats"],
+    "category": "analytics",
+    "notes": "GROUP BY userid, SUM(totalchatcount), ORDER BY DESC LIMIT 10"
+  },
+  {
+    "id": 156,
+    "question": "What is the order-to-enrollment ratio for each batch?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders", "cdp.central.gold_batch_rooms"],
+    "category": "funnel",
+    "notes": "COUNT orders per batch / SUM(usercount) per batch, two-way JOIN"
+  },
+  {
+    "id": 157,
+    "question": "How many classes were scheduled per center this month?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_schedule_content_details"],
+    "category": "center",
+    "notes": "GROUP BY center, COUNT, current month filter on schedule_date"
+  },
+  {
+    "id": 158,
+    "question": "What is the YoY revenue growth comparing 2024 to 2025?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "comparison",
+    "notes": "SUM(price) for 2024 vs 2025, calculate percentage growth"
+  },
+  {
+    "id": 159,
+    "question": "Show the running total of student enrollments over time",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "time_series",
+    "notes": "SUM(usercount) OVER (ORDER BY createdat), cumulative window"
+  },
+  {
+    "id": 160,
+    "question": "How many test products are active per organization?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_test_matview"],
+    "category": "exam",
+    "notes": "WHERE product_status = 'active', GROUP BY org_name, COUNT"
+  },
+  {
+    "id": 161,
+    "question": "What is the total revenue broken down by batch status?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "JOIN batches to orders, GROUP BY batch status, SUM(price)"
+  },
+  {
+    "id": 162,
+    "question": "Average number of days between consecutive orders for repeat customers",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "analytics",
+    "notes": "LAG window function on createdat per userid, AVG of differences"
+  },
+  {
+    "id": 163,
+    "question": "How does offline attendance differ between weekdays and weekends?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_attendance_details"],
+    "category": "comparison",
+    "notes": "DOW of schedule_date, GROUP BY weekday/weekend, COUNT"
+  },
+  {
+    "id": 164,
+    "question": "Show me the newest 20 batches created",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "batch",
+    "notes": "ORDER BY createdat DESC LIMIT 20"
+  },
+  {
+    "id": 165,
+    "question": "How many users only used wallet for their entire payment?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "student",
+    "notes": "WHERE wallet >= price AND price > 0, COUNT(DISTINCT userid)"
+  },
+  {
+    "id": 166,
+    "question": "What are the top 3 batches by enrollment for each exam category?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "ROW_NUMBER() OVER (PARTITION BY exam ORDER BY SUM(usercount) DESC), WHERE rn <= 3"
+  },
+  {
+    "id": 167,
+    "question": "What is the payment success rate by checkout type?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_payments"],
+    "category": "payment",
+    "notes": "GROUP BY checkouttype, COUNT(paid=true)/COUNT(*)*100"
+  },
+  {
+    "id": 168,
+    "question": "Which courses had the most student submissions last month?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.lms.gold_coursesubmissions", "cdp.lms.gold_courses"],
+    "category": "content",
+    "notes": "JOIN submissions to courses, GROUP BY course, COUNT, date filter, ORDER BY DESC"
+  },
+  {
+    "id": 169,
+    "question": "How many faculty organizations are there in total?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "faculty",
+    "notes": "COUNT(DISTINCT org_name)"
+  },
+  {
+    "id": 170,
+    "question": "How many batches had their first order within 24 hours of creation?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.cdp_revenue.gold_orders"],
+    "category": "batch",
+    "notes": "JOIN batches to orders, MIN(order createdat) - batch createdat < 1 day"
+  },
+  {
+    "id": 171,
+    "question": "What is the total number of courses by platform type?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_courses"],
+    "category": "content",
+    "notes": "GROUP BY platformtype, COUNT"
+  },
+  {
+    "id": 172,
+    "question": "Which offline batches have zero attendance records?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.offline.gold_offline_assigned_batch", "cdp.offline.gold_dbt_offline_attendance_details"],
+    "category": "offline",
+    "notes": "LEFT JOIN assigned batches to attendance, WHERE attendance IS NULL"
+  },
+  {
+    "id": 173,
+    "question": "What is the average revenue per day for each month in 2025?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "time_series",
+    "notes": "CTE: daily revenue, then AVG(daily_revenue) GROUP BY month"
+  },
+  {
+    "id": 174,
+    "question": "How many students have engaged via polls across all batches?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_crjr_user_stats"],
+    "category": "analytics",
+    "notes": "COUNT(DISTINCT userid) WHERE correct_polls_batch > 0"
+  },
+  {
+    "id": 175,
+    "question": "Find batches where the batch room count exceeds 5",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "batch",
+    "notes": "GROUP BY batchid, HAVING COUNT(*) > 5"
+  },
+  {
+    "id": 176,
+    "question": "Show me the payment conversion funnel: total orders to paid orders to successful payments",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders", "cdp.lms.gold_payments"],
+    "category": "funnel",
+    "notes": "COUNT at each stage, CTE or subqueries"
+  },
+  {
+    "id": 177,
+    "question": "Which regions have the most offline schedule entries?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_schedule_content_details"],
+    "category": "center",
+    "notes": "GROUP BY region, COUNT, ORDER BY DESC"
+  },
+  {
+    "id": 178,
+    "question": "What is the average batch duration by exam type?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches"],
+    "category": "exam",
+    "notes": "GROUP BY exam, AVG(enddate - startdate)"
+  },
+  {
+    "id": 179,
+    "question": "How many students from the business view ordered across multiple exams?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_dbt_business_matview_online"],
+    "category": "student",
+    "notes": "GROUP BY userid, HAVING COUNT(DISTINCT exam) > 1"
+  },
+  {
+    "id": 180,
+    "question": "Revenue percentage change from last month to this month",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "time_series",
+    "notes": "CTE for this month and last month revenue, calculate % change"
+  },
+  {
+    "id": 181,
+    "question": "What is the revenue from orders that used both wallet and coupon discount?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "SUM(price) WHERE wallet > 0 AND coupondiscount > 0"
+  },
+  {
+    "id": 182,
+    "question": "How many lecture batches are there in each exam sub-category?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "lecture",
+    "notes": "GROUP BY subexam, COUNT"
+  },
+  {
+    "id": 183,
+    "question": "Which user IDs appear in orders but not in any batch room?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders", "cdp.central.gold_batch_rooms"],
+    "category": "funnel",
+    "notes": "LEFT JOIN or NOT EXISTS, compare userid across tables"
+  },
+  {
+    "id": 184,
+    "question": "What is the total revenue per organization?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.cdp_revenue.gold_orders"],
+    "category": "revenue",
+    "notes": "JOIN batches to orders, GROUP BY organizationid, SUM(price)"
+  },
+  {
+    "id": 185,
+    "question": "How many combined centers exist for offline scheduling?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_schedule_content_details"],
+    "category": "center",
+    "notes": "COUNT(DISTINCT combined_center)"
+  },
+  {
+    "id": 186,
+    "question": "Show the top 10 batches with highest engagement measured by total chat plus poll activity",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.mview.gold_dbt_crjr_user_stats", "cdp.cdp_revenue.gold_batches"],
+    "category": "analytics",
+    "notes": "SUM(totalchatcount + correct_polls_batch) per batchid, JOIN for batch name, LIMIT 10"
+  },
+  {
+    "id": 187,
+    "question": "How many students have completed submissions in more than 3 different courses?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.lms.gold_coursesubmissions"],
+    "category": "student",
+    "notes": "GROUP BY userid, HAVING COUNT(DISTINCT courseid) > 3"
+  },
+  {
+    "id": 188,
+    "question": "Which faculty organization has the best student engagement in terms of onstage participation?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.mview.gold_dbt_crjr_user_stats", "cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "faculty",
+    "notes": "JOIN user stats to lecture info on batchid/batch_id, GROUP BY org_name, AVG(onstage_times)"
+  },
+  {
+    "id": 189,
+    "question": "Compare the number of offline classes scheduled in January vs February 2026",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.offline.gold_dbt_offline_schedule_content_details"],
+    "category": "comparison",
+    "notes": "GROUP BY month, COUNT, filter Jan and Feb 2026"
+  },
+  {
+    "id": 190,
+    "question": "Which courses on LMS have never had a payment?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.lms.gold_courses", "cdp.lms.gold_payments"],
+    "category": "funnel",
+    "notes": "LEFT JOIN courses to payments, WHERE payment IS NULL"
+  },
+  {
+    "id": 191,
+    "question": "What is the total enrollment capacity vs actual enrollment by month?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "GROUP BY month of createdat, SUM(userlimit), SUM(usercount)"
+  },
+  {
+    "id": 192,
+    "question": "Show me a daily revenue breakdown for the last 14 days",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "time_series",
+    "notes": "GROUP BY date, SUM(price), date filter last 14 days"
+  },
+  {
+    "id": 193,
+    "question": "How many lecture batches per exam have an access end date beyond 2026?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "lecture",
+    "notes": "WHERE access_end_date > '2026-12-31', GROUP BY exam, COUNT"
+  },
+  {
+    "id": 194,
+    "question": "For each faculty organization, what is the average number of batches they deliver lectures for?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "faculty",
+    "notes": "GROUP BY org_name, COUNT(DISTINCT batch_id), then overall AVG"
+  },
+  {
+    "id": 195,
+    "question": "Show me batches that were created but have no orders at all",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.cdp_revenue.gold_orders"],
+    "category": "funnel",
+    "notes": "LEFT JOIN batches to orders WHERE order IS NULL, TRY_CAST"
+  },
+  {
+    "id": 196,
+    "question": "What is the average discount percentage on orders?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.cdp_revenue.gold_orders"],
+    "category": "analytics",
+    "notes": "AVG(discount / (price + discount) * 100), handle division by zero"
+  },
+  {
+    "id": 197,
+    "question": "Which faculty organizations have lectures across both online and offline batch types?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info"],
+    "category": "faculty",
+    "notes": "GROUP BY org_name, HAVING COUNT(DISTINCT batch_type) >= 2"
+  },
+  {
+    "id": 198,
+    "question": "How many batch rooms were created in the last 90 days with zero students?",
+    "difficulty": "SIMPLE",
+    "expected_tables": ["cdp.central.gold_batch_rooms"],
+    "category": "enrollment",
+    "notes": "WHERE createdat >= current_date - 90 AND usercount = 0, COUNT"
+  },
+  {
+    "id": 199,
+    "question": "What is the funnel from lecture batch creation to first student chat engagement?",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.mview.gold_dbt_lecture_batch_info", "cdp.mview.gold_dbt_crjr_user_stats"],
+    "category": "funnel",
+    "notes": "COUNT batches with lectures vs batches with chat activity"
+  },
+  {
+    "id": 200,
+    "question": "Show me end-to-end conversion: total batches to batches with rooms to batches with orders to batches with over 100 students",
+    "difficulty": "COMPLEX",
+    "expected_tables": ["cdp.cdp_revenue.gold_batches", "cdp.central.gold_batch_rooms", "cdp.cdp_revenue.gold_orders"],
+    "category": "funnel",
+    "notes": "Multi-stage CTE funnel counting batches at each stage"
+  }
+]

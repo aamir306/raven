@@ -296,10 +296,15 @@ async def embed_and_store(
     """
     Embed glossary texts and store in pgvector glossary_embeddings table.
 
-    Uses the project's OpenAIClient (Azure) for embeddings and
-    PgVectorStore (psycopg2) for storage — same as other preprocessing
-    scripts.
+    Uses the project's OpenAIClient (Azure) for embeddings and raw
+    psycopg2 via PgVectorStore pool for inserts.
+
+    glossary_embeddings schema:
+        id SERIAL PK, term TEXT, definition TEXT, sql_fragment TEXT,
+        synonyms TEXT[], embedding vector(3072), metadata JSONB
     """
+    import numpy as np
+
     stored = 0
     for i in range(0, len(entries), batch_size):
         batch = entries[i : i + batch_size]
@@ -308,14 +313,39 @@ async def embed_and_store(
         # Embed via Azure OpenAI (text-embedding-3-large, 3072 dims)
         embeddings = await openai_client.batch_embed(text_strings)
 
-        for entry, embedding in zip(batch, embeddings):
-            pgvector_store.insert(
-                table_name="glossary_embeddings",
-                embedding=embedding,
-                metadata=entry.get("metadata", {}),
-                source_id=f"{entry['type']}::{entry['name'][:200]}",
-            )
-            stored += 1
+        # Bulk insert via connection pool
+        conn = pgvector_store._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                for entry, emb in zip(batch, embeddings):
+                    meta = entry.get("metadata", {})
+                    # Extract structured fields for the glossary table
+                    term = entry.get("name", "")[:500]
+                    definition = entry.get("text", "")
+                    sql_fragment = meta.get("sql_fragment", meta.get("sql", ""))
+                    synonyms = meta.get("synonyms", [])
+                    if isinstance(synonyms, str):
+                        synonyms = [synonyms]
+
+                    emb_str = "[" + ",".join(f"{v:.8f}" for v in emb) + "]"
+
+                    cur.execute(
+                        """INSERT INTO glossary_embeddings
+                           (term, definition, sql_fragment, synonyms, embedding, metadata)
+                           VALUES (%s, %s, %s, %s, %s::vector, %s)""",
+                        (
+                            term,
+                            definition,
+                            sql_fragment or None,
+                            synonyms or None,
+                            emb_str,
+                            json.dumps(meta),
+                        ),
+                    )
+                    stored += 1
+            conn.commit()
+        finally:
+            pgvector_store._pool.putconn(conn)
 
         logger.info("Embedded batch %d-%d / %d", i, i + len(batch), len(entries))
 
@@ -367,19 +397,21 @@ def main():
 
     # Embed and store using project connectors
     if args.embed:
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+
         from src.raven.connectors.openai_client import OpenAIClient
         from src.raven.connectors.pgvector_store import PgVectorStore
 
-        config_path = Path("config/raven_config.yaml")
-        if not config_path.exists():
-            logger.error("Config not found: %s — needed for OpenAI + pgvector creds", config_path)
-            sys.exit(1)
-
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-
-        openai_client = OpenAIClient(config)
-        pgvector = PgVectorStore(config)
+        openai_client = OpenAIClient()
+        pgvector = PgVectorStore(
+            host=os.getenv("PGVECTOR_HOST", "localhost"),
+            port=int(os.getenv("PGVECTOR_PORT", "5432")),
+            dbname=os.getenv("PGVECTOR_DB", "raven"),
+            user=os.getenv("PGVECTOR_USER", "raven"),
+            password=os.getenv("PGVECTOR_PASSWORD", "changeme"),
+        )
         pgvector.init_tables()
 
         stored = asyncio.run(embed_and_store(entries, openai_client, pgvector))
