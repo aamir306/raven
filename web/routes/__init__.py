@@ -633,20 +633,26 @@ async def review_focus_suggestion(suggestion_id: int, body: dict):
 # ── Metabase Bridge Routes ────────────────────────────────────────
 
 
-def _get_metabase_config() -> dict:
-    """Read Metabase config from env / settings."""
+def _get_metabase_config(browser_overrides: dict | None = None) -> dict:
+    """Read Metabase config from env + optional browser-side overrides.
+
+    Priority: browser override > env var > default.
+    Browser-sourced values: session_id, database_id, collection_name.
+    Server-only values: url, api_key (never stored in browser).
+    """
+    overrides = browser_overrides or {}
     return {
         "url": os.environ.get("METABASE_URL", ""),
         "api_key": os.environ.get("METABASE_API_KEY", ""),
-        "session_id": os.environ.get("METABASE_SESSION_ID", ""),
-        "database_id": int(os.environ.get("METABASE_DATABASE_ID", "1")),
-        "collection_name": os.environ.get("METABASE_COLLECTION", "RAVEN Generated"),
+        "session_id": overrides.get("session_id") or os.environ.get("METABASE_SESSION_ID", ""),
+        "database_id": int(overrides.get("database_id") or os.environ.get("METABASE_DATABASE_ID", "0") or "0"),
+        "collection_name": overrides.get("collection_name") or os.environ.get("METABASE_COLLECTION", "RAVEN Generated"),
     }
 
 
-def _get_metabase_client():
+def _get_metabase_client(browser_overrides: dict | None = None):
     from src.raven.connectors.metabase_client import MetabaseClient
-    cfg = _get_metabase_config()
+    cfg = _get_metabase_config(browser_overrides)
     if not cfg["url"]:
         raise HTTPException(status_code=400, detail="Metabase URL not configured. Set METABASE_URL env var.")
     return MetabaseClient(
@@ -656,9 +662,24 @@ def _get_metabase_client():
     )
 
 
+def _extract_browser_overrides(body: dict) -> dict:
+    """Extract browser-sourced Metabase config from request body."""
+    out = {}
+    if body.get("_mb_session_id"):
+        out["session_id"] = body["_mb_session_id"]
+    if body.get("_mb_database_id"):
+        out["database_id"] = body["_mb_database_id"]
+    if body.get("_mb_collection_name"):
+        out["collection_name"] = body["_mb_collection_name"]
+    return out
+
+
+RAVEN_NAME_PREFIX = "RAVEN_"
+
+
 @metabase_router.get("/config")
 async def metabase_config():
-    """Return current Metabase configuration (masked)."""
+    """Return current Metabase configuration (masked). Browser overrides are client-side only."""
     cfg = _get_metabase_config()
     return {
         "url": cfg["url"],
@@ -670,9 +691,10 @@ async def metabase_config():
 
 
 @metabase_router.post("/test-connection")
-async def metabase_test_connection():
-    """Test Metabase connection."""
-    client = _get_metabase_client()
+async def metabase_test_connection(body: dict = None):
+    """Test Metabase connection. Accepts optional browser overrides."""
+    overrides = _extract_browser_overrides(body) if body else {}
+    client = _get_metabase_client(overrides)
     result = await client.test_connection()
     return result
 
@@ -719,6 +741,7 @@ async def metabase_preview_link(body: dict):
             "table_count": len(tables),
             "tables": tables,
             "owner": meta.get("owner", ""),
+            "database_id": meta.get("database_id"),
         }
     elif info["type"] == "question":
         card = await client.get_question(info["id"])
@@ -737,13 +760,16 @@ async def metabase_preview_link(body: dict):
 @metabase_router.post("/push-question")
 async def metabase_push_question(body: dict):
     """Save a RAVEN-generated SQL as a Metabase question."""
-    client = _get_metabase_client()
-    cfg = _get_metabase_config()
+    overrides = _extract_browser_overrides(body)
+    client = _get_metabase_client(overrides)
+    cfg = _get_metabase_config(overrides)
+    raw_name = body.get("name", "RAVEN Query")
+    name = raw_name if raw_name.startswith(RAVEN_NAME_PREFIX) else f"{RAVEN_NAME_PREFIX}{raw_name}"
     result = await client.create_question(
-        name=body.get("name", "RAVEN Query"),
+        name=name,
         sql=body["sql"],
         display=body.get("display", "table"),
-        database_id=body.get("database_id", cfg["database_id"]),
+        database_id=body.get("database_id") or cfg["database_id"] or 1,
         collection_id=body.get("collection_id"),
         description=body.get("description"),
     )
@@ -753,22 +779,28 @@ async def metabase_push_question(body: dict):
 @metabase_router.post("/push-dashboard")
 async def metabase_push_dashboard(body: dict):
     """Create a Metabase dashboard from multiple questions."""
-    client = _get_metabase_client()
-    cfg = _get_metabase_config()
+    overrides = _extract_browser_overrides(body)
+    client = _get_metabase_client(overrides)
+    cfg = _get_metabase_config(overrides)
+    db_id = body.get("database_id") or cfg["database_id"] or 1
     # First create each question
     card_ids = []
     for card in body.get("cards", []):
+        raw_name = card.get("name", "RAVEN Card")
+        card_name = raw_name if raw_name.startswith(RAVEN_NAME_PREFIX) else f"{RAVEN_NAME_PREFIX}{raw_name}"
         q = await client.create_question(
-            name=card.get("name", "RAVEN Card"),
+            name=card_name,
             sql=card["sql"],
             display=card.get("display", "table"),
-            database_id=body.get("database_id", cfg["database_id"]),
+            database_id=db_id,
             collection_id=body.get("collection_id"),
         )
         card_ids.append(q["id"])
     # Then create dashboard with those cards
+    raw_dash = body.get("name", "RAVEN Dashboard")
+    dash_name = raw_dash if raw_dash.startswith(RAVEN_NAME_PREFIX) else f"{RAVEN_NAME_PREFIX}{raw_dash}"
     dashboard = await client.create_dashboard(
-        name=body.get("name", "RAVEN Dashboard"),
+        name=dash_name,
         card_ids=card_ids,
         collection_id=body.get("collection_id"),
         description=body.get("description"),
@@ -779,14 +811,17 @@ async def metabase_push_dashboard(body: dict):
 @metabase_router.post("/add-to-dashboard")
 async def metabase_add_to_dashboard(body: dict):
     """Add a question to an existing Metabase dashboard."""
-    client = _get_metabase_client()
-    cfg = _get_metabase_config()
+    overrides = _extract_browser_overrides(body)
+    client = _get_metabase_client(overrides)
+    cfg = _get_metabase_config(overrides)
     # Create the question first
+    raw_name = body.get("name", "RAVEN Card")
+    name = raw_name if raw_name.startswith(RAVEN_NAME_PREFIX) else f"{RAVEN_NAME_PREFIX}{raw_name}"
     q = await client.create_question(
-        name=body.get("name", "RAVEN Card"),
+        name=name,
         sql=body["sql"],
         display=body.get("display", "table"),
-        database_id=body.get("database_id", cfg["database_id"]),
+        database_id=body.get("database_id") or cfg["database_id"] or 1,
     )
     # Add to dashboard
     result = await client.add_card_to_dashboard(

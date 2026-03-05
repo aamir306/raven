@@ -148,8 +148,16 @@ class MetabaseClient:
         ]
 
     async def get_dashboard_meta(self, dashboard_id: int) -> dict:
-        """Fetch dashboard metadata (name, filters, owner)."""
+        """Fetch dashboard metadata (name, filters, owner, database_id)."""
         d = await self._get(f"/api/dashboard/{dashboard_id}")
+        # Auto-detect database_id from the first native card
+        db_id = None
+        for dc in d.get("dashcards", []):
+            card = dc.get("card", {})
+            dq = card.get("dataset_query", {})
+            if dq.get("database"):
+                db_id = dq["database"]
+                break
         return {
             "id": d["id"],
             "name": d.get("name", ""),
@@ -157,6 +165,7 @@ class MetabaseClient:
             "filters": d.get("parameters", []),
             "owner": d.get("creator", {}).get("common_name", ""),
             "card_count": len(d.get("dashcards", [])),
+            "database_id": db_id,
         }
 
     async def get_dashboard_cards(self, dashboard_id: int) -> list[dict]:

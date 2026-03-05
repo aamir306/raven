@@ -1449,6 +1449,25 @@ body {
   font-family: var(--font-mono); font-size: 11px;
 }
 
+/* Settings editable fields (browser config) */
+.settings-field {
+  display: block; margin-bottom: 14px;
+}
+.settings-field-label {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 500; color: var(--text-dim); margin-bottom: 4px;
+}
+.settings-input {
+  display: block; width: 100%; padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text); font-size: 12px;
+}
+.settings-input:focus { outline: none; border-color: var(--accent); }
+.settings-input::placeholder { color: var(--text-muted); font-size: 11px; }
+.settings-field-hint {
+  display: block; font-size: 10px; color: var(--text-muted); margin-top: 3px;
+}
+
 /* ── Focus Document Editor ──────────────────────────────────────── */
 
 .focus-doc-list { display: flex; flex-direction: column; gap: 8px; }
