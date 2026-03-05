@@ -1,14 +1,19 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { MessageSquare, Send, PanelLeftClose, PanelLeft, Plus, Sun, Moon,
-  Search, Database, Sparkles, HelpCircle, X, Trash2, FileUp, BookOpen, Settings, GitBranch } from 'lucide-react';
+  Search, Database, Sparkles, HelpCircle, X, Trash2, FileUp, BookOpen, Settings, GitBranch,
+  Target, Link } from 'lucide-react';
 import ResponseCard from './components/ResponseCard';
 import Landing from './components/Landing';
+import FocusDropdown from './components/FocusDropdown';
+import FocusBanner from './components/FocusBanner';
 import './App.css';
 
 const DocumentUpload = lazy(() => import('./components/pages/DocumentUpload'));
 const GlossaryEditor = lazy(() => import('./components/pages/GlossaryEditor'));
 const AdminDashboard = lazy(() => import('./components/pages/AdminDashboard'));
 const SchemaExplorerPage = lazy(() => import('./components/pages/SchemaExplorerPage'));
+const FocusDocumentEditor = lazy(() => import('./components/pages/FocusDocumentEditor'));
+const MetabaseSettings = lazy(() => import('./components/pages/MetabaseSettings'));
 
 const API_BASE = process.env.REACT_APP_API_URL || '';
 
@@ -48,8 +53,12 @@ function App() {
   const [suggestions, setSuggestions] = useState([]);
   const [sessionSearch, setSessionSearch] = useState('');
   const [showHelp, setShowHelp] = useState(false);
-  const [activeTool, setActiveTool] = useState(null); // 'documents' | 'glossary' | 'admin' | null
+  const [activeTool, setActiveTool] = useState(null); // 'documents' | 'glossary' | 'admin' | 'focus' | 'metabase' | null
   const [loadingStageDetail, setLoadingStageDetail] = useState('');
+
+  // Focus Mode state
+  const [activeFocus, setActiveFocus] = useState(null); // { type, id, name, tables, ... }
+  const [focusDropdownVisible, setFocusDropdownVisible] = useState(false);
 
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -186,8 +195,17 @@ function App() {
     const q = (text || input).trim();
     if (!q || loading) return;
 
+    // If user typed just "/", open focus dropdown instead of sending
+    if (q === '/') {
+      setFocusDropdownVisible(true);
+      return;
+    }
+    // Strip leading "/" prefix if focus was already selected
+    const cleanQ = q.startsWith('/') ? q.slice(1).trim() : q;
+    if (!cleanQ) return;
+
     setInput('');
-    const newMessages = [...messages, { role: 'user', content: q }];
+    const newMessages = [...messages, { role: 'user', content: cleanQ }];
     setMessages(newMessages);
     setLoading(true);
     setLoadingStage(0);
@@ -213,8 +231,9 @@ function App() {
     }
 
     const body = JSON.stringify({
-      question: q,
+      question: cleanQ,
       conversation_id: currentConversationId,
+      focus_id: activeFocus?.id || null,
     });
 
     // Try SSE streaming first, fall back to regular POST
@@ -292,7 +311,28 @@ function App() {
       setLoading(false);
       setLoadingStageDetail('');
     }
-  }, [input, loading, activeSession, conversationId, messages, saveSessionMessages, parseSSE]);
+  }, [input, loading, activeSession, conversationId, messages, saveSessionMessages, parseSSE, activeFocus]);
+
+  // Handle "/" key to open focus dropdown
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    setInput(val);
+    autoResize(e);
+    if (val === '/') {
+      setFocusDropdownVisible(true);
+    }
+  };
+
+  const handleFocusSelect = (focusItem) => {
+    if (!focusItem) {
+      setActiveFocus(null);
+    } else {
+      setActiveFocus(focusItem);
+    }
+    setInput('');
+    setFocusDropdownVisible(false);
+    textareaRef.current?.focus();
+  };
 
   const handleFeedback = async (queryId, feedback, correction) => {
     try {
@@ -398,6 +438,10 @@ function App() {
 
         <div className="sidebar-tools">
           <div className="sidebar-section-label">Tools</div>
+          <button className={`sidebar-tool-btn ${activeTool === 'focus' ? 'active' : ''}`}
+            onClick={() => setActiveTool(activeTool === 'focus' ? null : 'focus')}>
+            <Target size={14} /> Focus Docs
+          </button>
           <button className={`sidebar-tool-btn ${activeTool === 'documents' ? 'active' : ''}`}
             onClick={() => setActiveTool(activeTool === 'documents' ? null : 'documents')}>
             <FileUp size={14} /> Documents
@@ -409,6 +453,10 @@ function App() {
           <button className={`sidebar-tool-btn ${activeTool === 'glossary' ? 'active' : ''}`}
             onClick={() => setActiveTool(activeTool === 'glossary' ? null : 'glossary')}>
             <BookOpen size={14} /> Glossary
+          </button>
+          <button className={`sidebar-tool-btn ${activeTool === 'metabase' ? 'active' : ''}`}
+            onClick={() => setActiveTool(activeTool === 'metabase' ? null : 'metabase')}>
+            <Link size={14} /> Metabase
           </button>
           {persona === 'engineer' && (
             <button className={`sidebar-tool-btn ${activeTool === 'admin' ? 'active' : ''}`}
@@ -462,9 +510,11 @@ function App() {
         {/* Tool panels */}
         {activeTool && (
           <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading...</div>}>
+            {activeTool === 'focus' && <FocusDocumentEditor onClose={() => setActiveTool(null)} />}
             {activeTool === 'documents' && <DocumentUpload onClose={() => setActiveTool(null)} />}
             {activeTool === 'schema' && <SchemaExplorerPage onClose={() => setActiveTool(null)} />}
             {activeTool === 'glossary' && <GlossaryEditor onClose={() => setActiveTool(null)} />}
+            {activeTool === 'metabase' && <MetabaseSettings onClose={() => setActiveTool(null)} />}
             {activeTool === 'admin' && <AdminDashboard onClose={() => setActiveTool(null)} />}
           </Suspense>
         )}
@@ -480,6 +530,14 @@ function App() {
             />
           ) : (
             <>
+              {/* Focus Mode Banner */}
+              {activeFocus && (
+                <FocusBanner
+                  focus={activeFocus}
+                  onClear={() => setActiveFocus(null)}
+                />
+              )}
+
               {messages.map((msg, i) => (
                 <div key={i} className={`message message-${msg.role}`}>
                   {msg.role === 'user' ? (
@@ -564,13 +622,23 @@ function App() {
         </div>
 
         <div className={`input-bar-container ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
+          {/* Focus pill above input */}
+          {activeFocus && (
+            <div className="input-focus-pill">
+              <Target size={12} />
+              <span>Focus: {activeFocus.name}</span>
+              <button onClick={() => setActiveFocus(null)} className="input-focus-pill-clear">
+                <X size={11} />
+              </button>
+            </div>
+          )}
           <div className="input-bar">
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => { setInput(e.target.value); autoResize(e); }}
+              onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="Ask a question about your data..."
+              placeholder={activeFocus ? `Ask about ${activeFocus.name}...` : 'Ask a question about your data... (type / to focus)'}
               rows={1}
               disabled={loading}
             />
@@ -583,6 +651,13 @@ function App() {
               <Send size={16} />
             </button>
           </div>
+
+          {/* Focus dropdown (triggered by / command) */}
+          <FocusDropdown
+            visible={focusDropdownVisible}
+            onSelect={handleFocusSelect}
+            onClose={() => { setFocusDropdownVisible(false); setInput(''); }}
+          />
         </div>
         </>
         )}

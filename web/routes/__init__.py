@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import json as json_module
+import os
 import uuid
 import asyncio
 from pathlib import Path
@@ -23,6 +24,8 @@ logger = logging.getLogger(__name__)
 query_router = APIRouter(prefix="/api", tags=["query"])
 admin_router = APIRouter(prefix="/api/admin", tags=["admin"])
 metrics_router = APIRouter(prefix="/api", tags=["metrics"])
+focus_router = APIRouter(prefix="/api/focus", tags=["focus"])
+metabase_router = APIRouter(prefix="/api/metabase", tags=["metabase"])
 
 
 # ── Models ────────────────────────────────────────────────────────────
@@ -31,6 +34,7 @@ metrics_router = APIRouter(prefix="/api", tags=["metrics"])
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     conversation_id: str | None = None
+    focus_id: str | None = None  # UUID of a focus document to scope context
 
 
 class QueryResponse(BaseModel):
@@ -55,6 +59,8 @@ class QueryResponse(BaseModel):
     is_followup: bool = False
     original_question: str = ""
     verified: bool = False
+    focus: dict | None = None
+    enhancements: list[dict] = []
 
 
 class FeedbackRequest(BaseModel):
@@ -104,13 +110,27 @@ def get_pipeline():
 # ── Query Routes ──────────────────────────────────────────────────────
 
 
+def _resolve_focus(focus_id: str | None):
+    """Resolve a focus document ID into a FocusContext, or None."""
+    if not focus_id:
+        return None
+    from src.raven.focus import FocusStore
+    store = FocusStore()
+    doc = store.get_document(focus_id)
+    if not doc:
+        return None
+    return doc.to_focus_context()
+
+
 @query_router.post("/query", response_model=QueryResponse)
 async def query(request: QueryRequest, pipeline=Depends(get_pipeline)):
     """Submit a natural language question to the text-to-SQL pipeline."""
     query_id = str(uuid.uuid4())[:8]
+    focus = _resolve_focus(request.focus_id)
     result = await pipeline.generate(
         question=request.question,
         conversation_id=request.conversation_id,
+        focus=focus,
     )
     return QueryResponse(query_id=query_id, **result)
 
@@ -145,10 +165,12 @@ async def query_stream(request: QueryRequest, pipeline=Depends(get_pipeline)):
 
     async def run_pipeline():
         try:
+            focus = _resolve_focus(request.focus_id)
             result = await pipeline.generate(
                 question=request.question,
                 conversation_id=request.conversation_id,
                 stage_hook=stage_hook,
+                focus=focus,
             )
             result["query_id"] = query_id
             await event_queue.put({"type": "result", "data": result})
@@ -411,4 +433,279 @@ async def delete_glossary_term(term_id: int):
         raise HTTPException(status_code=404, detail="Term not found")
     _save_glossary(filtered)
     return {"status": "deleted"}
+
+
+# ── Focus Document Routes ─────────────────────────────────────────
+
+
+def _get_focus_store():
+    from src.raven.focus import FocusStore
+    return FocusStore()
+
+
+@focus_router.get("/documents")
+async def list_focus_documents():
+    """List all focus documents (for / command dropdown)."""
+    store = _get_focus_store()
+    docs = store.list_documents()
+    return {"documents": docs}
+
+
+@focus_router.get("/documents/{doc_id}")
+async def get_focus_document(doc_id: str):
+    """Get a single focus document by ID."""
+    store = _get_focus_store()
+    doc = store.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Focus document not found")
+    return doc.to_dict()
+
+
+@focus_router.post("/documents")
+async def create_focus_document(body: dict):
+    """Create a new focus document."""
+    from src.raven.focus import FocusDocument
+    doc = FocusDocument(
+        name=body.get("name", "Untitled"),
+        description=body.get("description", ""),
+        type=body.get("type", "manual"),
+        tables=body.get("tables", []),
+        glossary_terms=body.get("glossary_terms", []),
+        verified_queries=body.get("verified_queries", []),
+        business_rules=body.get("business_rules", []),
+        column_notes=body.get("column_notes", {}),
+        metabase_dashboard_id=body.get("metabase_dashboard_id"),
+        created_by=body.get("created_by", "admin"),
+    )
+    store = _get_focus_store()
+    created = store.create_document(doc)
+    return {"status": "created", "document": created.to_dict()}
+
+
+@focus_router.put("/documents/{doc_id}")
+async def update_focus_document(doc_id: str, body: dict):
+    """Update a focus document."""
+    store = _get_focus_store()
+    updated = store.update_document(doc_id, body)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Focus document not found")
+    return {"status": "updated", "document": updated.to_dict()}
+
+
+@focus_router.delete("/documents/{doc_id}")
+async def delete_focus_document(doc_id: str):
+    """Delete a focus document."""
+    store = _get_focus_store()
+    if not store.delete_document(doc_id):
+        raise HTTPException(status_code=404, detail="Focus document not found")
+    return {"status": "deleted"}
+
+
+# ── Focus Document Enhancement Suggestions ────────────────────────
+
+
+@focus_router.get("/suggestions")
+async def list_focus_suggestions(document_id: str | None = None, status: str | None = None):
+    """List enhancement suggestions, optionally filtered."""
+    store = _get_focus_store()
+    return {"suggestions": store.list_suggestions(document_id=document_id, status=status)}
+
+
+@focus_router.post("/suggestions")
+async def add_focus_suggestion(body: dict):
+    """Create a new enhancement suggestion."""
+    store = _get_focus_store()
+    entry = store.add_suggestion(
+        document_id=body["document_id"],
+        suggestion_type=body["suggestion_type"],
+        suggestion_data=body.get("suggestion_data", {}),
+        source_query_id=body.get("source_query_id"),
+    )
+    return {"status": "created", "suggestion": entry}
+
+
+@focus_router.post("/suggestions/{suggestion_id}/review")
+async def review_focus_suggestion(suggestion_id: int, body: dict):
+    """Accept or reject an enhancement suggestion."""
+    action = body.get("action", "")
+    if action not in ("accepted", "rejected"):
+        raise HTTPException(status_code=400, detail="action must be 'accepted' or 'rejected'")
+    store = _get_focus_store()
+    result = store.review_suggestion(suggestion_id, action, reviewer=body.get("reviewer", "admin"))
+    if not result:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    return {"status": action, "suggestion": result}
+
+
+# ── Metabase Bridge Routes ────────────────────────────────────────
+
+
+def _get_metabase_config() -> dict:
+    """Read Metabase config from env / settings."""
+    return {
+        "url": os.environ.get("METABASE_URL", ""),
+        "api_key": os.environ.get("METABASE_API_KEY", ""),
+        "session_id": os.environ.get("METABASE_SESSION_ID", ""),
+        "database_id": int(os.environ.get("METABASE_DATABASE_ID", "1")),
+        "collection_name": os.environ.get("METABASE_COLLECTION", "RAVEN Generated"),
+    }
+
+
+def _get_metabase_client():
+    from src.raven.connectors.metabase_client import MetabaseClient
+    cfg = _get_metabase_config()
+    if not cfg["url"]:
+        raise HTTPException(status_code=400, detail="Metabase URL not configured. Set METABASE_URL env var.")
+    return MetabaseClient(
+        url=cfg["url"],
+        api_key=cfg["api_key"] or None,
+        session_id=cfg["session_id"] or None,
+    )
+
+
+@metabase_router.get("/config")
+async def metabase_config():
+    """Return current Metabase configuration (masked)."""
+    cfg = _get_metabase_config()
+    return {
+        "url": cfg["url"],
+        "has_api_key": bool(cfg["api_key"]),
+        "has_session_id": bool(cfg["session_id"]),
+        "database_id": cfg["database_id"],
+        "collection_name": cfg["collection_name"],
+    }
+
+
+@metabase_router.post("/test-connection")
+async def metabase_test_connection():
+    """Test Metabase connection."""
+    client = _get_metabase_client()
+    result = await client.test_connection()
+    return result
+
+
+@metabase_router.get("/dashboards")
+async def metabase_list_dashboards():
+    """List all Metabase dashboards."""
+    client = _get_metabase_client()
+    return {"dashboards": await client.list_dashboards()}
+
+
+@metabase_router.get("/dashboards/{dashboard_id}/cards")
+async def metabase_dashboard_cards(dashboard_id: int):
+    """Get cards from a Metabase dashboard (for Focus Mode context)."""
+    client = _get_metabase_client()
+    cards = await client.get_dashboard_cards(dashboard_id)
+    meta = await client.get_dashboard_meta(dashboard_id)
+    tables = list({t for c in cards for t in c.get("tables", [])})
+    return {
+        "dashboard": meta,
+        "cards": cards,
+        "tables": tables,
+    }
+
+
+@metabase_router.post("/preview-link")
+async def metabase_preview_link(body: dict):
+    """Fetch metadata for a Metabase URL (inline preview)."""
+    from src.raven.focus import parse_metabase_url
+    url = body.get("url", "")
+    info = parse_metabase_url(url)
+    if not info:
+        raise HTTPException(status_code=400, detail="Not a valid Metabase URL")
+    client = _get_metabase_client()
+    if info["type"] == "dashboard":
+        meta = await client.get_dashboard_meta(info["id"])
+        cards = await client.get_dashboard_cards(info["id"])
+        tables = list({t for c in cards for t in c.get("tables", [])})
+        return {
+            "type": "dashboard",
+            "id": info["id"],
+            "name": meta.get("name", ""),
+            "card_count": meta.get("card_count", len(cards)),
+            "table_count": len(tables),
+            "tables": tables,
+            "owner": meta.get("owner", ""),
+        }
+    elif info["type"] == "question":
+        card = await client.get_question(info["id"])
+        return {
+            "type": "question",
+            "id": info["id"],
+            "name": card.get("name", ""),
+            "sql": card.get("sql", ""),
+            "tables": card.get("tables", []),
+            "display": card.get("display", "table"),
+        }
+    else:
+        return {"type": info["type"], "id": info["id"]}
+
+
+@metabase_router.post("/push-question")
+async def metabase_push_question(body: dict):
+    """Save a RAVEN-generated SQL as a Metabase question."""
+    client = _get_metabase_client()
+    cfg = _get_metabase_config()
+    result = await client.create_question(
+        name=body.get("name", "RAVEN Query"),
+        sql=body["sql"],
+        display=body.get("display", "table"),
+        database_id=body.get("database_id", cfg["database_id"]),
+        collection_id=body.get("collection_id"),
+        description=body.get("description"),
+    )
+    return result
+
+
+@metabase_router.post("/push-dashboard")
+async def metabase_push_dashboard(body: dict):
+    """Create a Metabase dashboard from multiple questions."""
+    client = _get_metabase_client()
+    cfg = _get_metabase_config()
+    # First create each question
+    card_ids = []
+    for card in body.get("cards", []):
+        q = await client.create_question(
+            name=card.get("name", "RAVEN Card"),
+            sql=card["sql"],
+            display=card.get("display", "table"),
+            database_id=body.get("database_id", cfg["database_id"]),
+            collection_id=body.get("collection_id"),
+        )
+        card_ids.append(q["id"])
+    # Then create dashboard with those cards
+    dashboard = await client.create_dashboard(
+        name=body.get("name", "RAVEN Dashboard"),
+        card_ids=card_ids,
+        collection_id=body.get("collection_id"),
+        description=body.get("description"),
+    )
+    return dashboard
+
+
+@metabase_router.post("/add-to-dashboard")
+async def metabase_add_to_dashboard(body: dict):
+    """Add a question to an existing Metabase dashboard."""
+    client = _get_metabase_client()
+    cfg = _get_metabase_config()
+    # Create the question first
+    q = await client.create_question(
+        name=body.get("name", "RAVEN Card"),
+        sql=body["sql"],
+        display=body.get("display", "table"),
+        database_id=body.get("database_id", cfg["database_id"]),
+    )
+    # Add to dashboard
+    result = await client.add_card_to_dashboard(
+        dashboard_id=body["dashboard_id"],
+        card_id=q["id"],
+    )
+    return result
+
+
+@metabase_router.get("/collections")
+async def metabase_list_collections():
+    """List Metabase collections."""
+    client = _get_metabase_client()
+    return {"collections": await client.list_collections()}
 

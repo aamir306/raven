@@ -22,6 +22,7 @@ from typing import Any
 from .connectors.openai_client import OpenAIClient
 from .connectors.pgvector_store import PgVectorStore
 from .connectors.trino_connector import TrinoConnector
+from .focus import FocusContext, suggest_enhancements, parse_metabase_url
 from .router.classifier import DifficultyClassifier, Difficulty
 from .retrieval.information_retriever import InformationRetriever
 from .schema.schema_selector import SchemaSelector
@@ -44,6 +45,9 @@ class PipelineContext:
     # Input
     user_question: str
     conversation_id: str | None = None
+
+    # Focus Mode context (scoped tables / dashboard)
+    focus: Any | None = None  # FocusContext instance when focus is active
 
     # Stage 1: Router
     difficulty: Difficulty | None = None
@@ -86,6 +90,9 @@ class PipelineContext:
 
     # Follow-up suggestions
     follow_up_suggestions: list[str] = field(default_factory=list)
+
+    # Focus Mode: enhancement suggestions for living documents
+    enhancement_suggestions: list[dict] = field(default_factory=list)
 
 
 class Pipeline:
@@ -176,6 +183,7 @@ class Pipeline:
         question: str,
         conversation_id: str | None = None,
         stage_hook: Any | None = None,
+        focus: Any | None = None,
     ) -> dict:
         """
         Run the full pipeline for a user question.
@@ -185,6 +193,7 @@ class Pipeline:
             conversation_id: Optional multi-turn conversation ID.
             stage_hook: Optional async callback(stage_name, event, detail_dict)
                         called with event="start" before and event="done" after each stage.
+            focus: Optional FocusContext for scoped retrieval / schema selection.
 
         Returns a dict with: sql, data, chart, summary, confidence, timings, cost.
         """
@@ -219,6 +228,7 @@ class Pipeline:
         ctx = PipelineContext(
             user_question=effective_question,
             conversation_id=conversation_id,
+            focus=focus,
         )
         pipeline_start = time.monotonic()
         METRICS.query_started()
@@ -275,6 +285,17 @@ class Pipeline:
             except Exception:
                 ctx.follow_up_suggestions = []
                 logger.debug("Follow-up generation failed (non-critical)", exc_info=True)
+
+            # ── Generate focus enhancement suggestions (Living Documents) ──
+            try:
+                ctx.enhancement_suggestions = await suggest_enhancements(
+                    focus=ctx.focus,
+                    tables_used=ctx.selected_tables,
+                    probe_evidence=ctx.probe_evidence,
+                )
+            except Exception:
+                ctx.enhancement_suggestions = []
+                logger.debug("Enhancement suggestion failed (non-critical)", exc_info=True)
 
         except Exception as e:
             logger.exception("Pipeline failed for question: %s", question)
@@ -512,6 +533,9 @@ class Pipeline:
             },
             # Phase 5: follow-up suggestions (populated by Stage 8)
             "suggestions": ctx.follow_up_suggestions,
+            # Phase 5.4: Focus mode + living document enhancements
+            "focus": ctx.focus.to_dict() if ctx.focus else None,
+            "enhancements": ctx.enhancement_suggestions,
         }
 
     def _ambiguous_response(self, ctx: PipelineContext) -> dict:

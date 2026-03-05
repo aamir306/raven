@@ -94,11 +94,13 @@ except ImportError:
 # ── Routers ───────────────────────────────────────────────────────────
 
 try:
-    from web.routes import query_router, admin_router, metrics_router
+    from web.routes import query_router, admin_router, metrics_router, focus_router, metabase_router
     app.include_router(query_router)
     app.include_router(admin_router)
     app.include_router(metrics_router)
-    logger.info("Routers loaded: query, admin, metrics")
+    app.include_router(focus_router)
+    app.include_router(metabase_router)
+    logger.info("Routers loaded: query, admin, metrics, focus, metabase")
 except ImportError:
     logger.warning("web.routes not found — using inline routes only")
 

@@ -3,7 +3,7 @@ import { Tabs } from 'antd';
 import {
   FileText, BarChart3, Table2, Code2, Bug, Brain,
   CheckCircle, Clock, DollarSign, Zap, GitBranch, Database,
-  Copy, Check, Download, Image, Share2
+  Copy, Check, Download, Image, Share2, Target, AlertTriangle
 } from 'lucide-react';
 import SummaryTab from './tabs/SummaryTab';
 import ChartTab from './tabs/ChartTab';
@@ -14,6 +14,8 @@ import ThinkingTab from './tabs/ThinkingTab';
 import FeedbackBar from './FeedbackBar';
 import CandidateComparison from './CandidateComparison';
 import QueryRefinement from './QueryRefinement';
+import EnhancementSuggestions from './EnhancementSuggestions';
+import MetabasePushModal from './MetabasePushModal';
 
 const SchemaExplorer = lazy(() => import('./SchemaExplorer'));
 
@@ -30,6 +32,7 @@ export default function ResponseCard({ result, visibleTabs, onFeedback, onRerun,
   const [activeTab, setActiveTab] = useState('summary');
   const [showSchema, setShowSchema] = useState(false);
   const [copiedSQL, setCopiedSQL] = useState(false);
+  const [showMetabasePush, setShowMetabasePush] = useState(false);
 
   const totalTime = useMemo(() => {
     const t = result.timings?.total;
@@ -135,8 +138,14 @@ export default function ResponseCard({ result, visibleTabs, onFeedback, onRerun,
 
   return (
     <div className="response-card">
-      {/* Header badges */}
+      {/* Focus indicator in header */}
       <div className="response-card-header">
+        {result.focus && (
+          <span className="badge badge-focus">
+            <Target size={11} /> {result.focus.name}
+          </span>
+        )}
+
         <span className={`badge badge-confidence-${result.confidence || 'LOW'}`}>
           {result.confidence || 'LOW'}
         </span>
@@ -204,7 +213,33 @@ export default function ResponseCard({ result, visibleTabs, onFeedback, onRerun,
         <button className="action-bar-btn" onClick={handleShareLink} title="Copy share link">
           <Share2 size={13} /> Share
         </button>
+        <button className="action-bar-btn action-bar-btn-metabase" onClick={() => setShowMetabasePush(true)} title="Push to Metabase">
+          <BarChart3 size={13} /> Push to Metabase
+        </button>
       </div>
+
+      {/* Enhancement suggestions (Living Documents) */}
+      {result.enhancements?.length > 0 && result.focus && (
+        <EnhancementSuggestions
+          suggestions={result.enhancements}
+          focusName={result.focus.name}
+          focusId={result.focus.source_id}
+        />
+      )}
+
+      {/* Out-of-focus table warning */}
+      {result.focus && result.debug?.selected_tables?.some(t => !result.focus.tables?.includes(t)) && (
+        <div className="out-of-focus-warning">
+          <AlertTriangle size={13} />
+          <span>
+            Tables outside focus used:
+            {result.debug.selected_tables
+              .filter(t => !result.focus.tables?.includes(t))
+              .map(t => <span key={t} className="out-of-focus-table"> {t}</span>)
+            }
+          </span>
+        </div>
+      )}
 
       {/* Feedback */}
       <FeedbackBar
@@ -221,6 +256,15 @@ export default function ResponseCard({ result, visibleTabs, onFeedback, onRerun,
           />
         </Suspense>
       )}
+
+      {/* Metabase Push Modal */}
+      <MetabasePushModal
+        visible={showMetabasePush}
+        sql={result.sql}
+        question={result.question}
+        chartType={result.chart_type}
+        onClose={() => setShowMetabasePush(false)}
+      />
     </div>
   );
 }
