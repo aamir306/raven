@@ -341,14 +341,14 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 
 ## Current Project Status (March 5, 2026)
 
-**HEAD:** `4eaed6a` (Phase 5.2) on `main`, pushed to GitHub
+**HEAD:** `9e53450` (Phase 5.3) on `main`, pushed to GitHub
 
 | Phase | Status | Commit |
 |---|---|---|
 | Phase 1 (Weeks 1-3) | ✅ Complete | 63fbe72 |
 | Phase 2 (Weeks 4-5) | ✅ Complete | fd548cf |
 | Phase 3 (Weeks 6-8) | ✅ Complete | 152f3f8 |
-| Phase 5 (Weeks 13-16) | ✅ Complete | b43c4f7, 17129cc, 4eaed6a |
+| Phase 5 (Weeks 13-16) | ✅ Complete | b43c4f7, 17129cc, 4eaed6a, 9e53450 |
 | Phase 6 (Weeks 17-20) | 🟡 Tooling done, data population pending | 0600663 |
 | Phase 4 (Weeks 9-12) | ⬜ Not started | — |
 
@@ -373,6 +373,7 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 
 | Commit | Message |
 |---|---|
+| 9e53450 | Phase 5.3: SSE streaming, follow-up suggestions, schema explorer, SVG export |
 | 4eaed6a | Phase 5.2: ThinkingTab, action bar, tables-used, Excel/filter, Documents/Glossary/Admin pages |
 | 17129cc | Phase 5.1: Multi-turn sessions, help modal, search, loading progress |
 | 0600663 | Phase 6: Prometheus metrics, data quality tooling, Grafana dashboard |
@@ -471,11 +472,22 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 - ✅ Sidebar tools navigation
 
 ### UI Spec Features Deferred (future work)
-- SSE streaming (real backend → frontend stage events)
 - Phoenix iframe embedding + JWT auth
 - Save to Metabase from SQL tab
 - Voice input
 - Embeddable npm package `@raven-sql/embed`
+
+## Phase 5.3 Changes (commit 9e53450)
+
+### Backend Changes
+- **src/raven/pipeline.py** — `stage_hook` callback parameter on `generate()` and `_run_stage()`. Emits stage start/done events with context-specific detail (difficulty classification, entity/glossary counts, selected table names, candidate count, row count + chart type). New `_generate_followups()` method: GPT-4o-mini generates 3 context-aware follow-up suggestions (drill-down, comparison, time-based) after each successful query. `follow_up_suggestions` field added to PipelineContext dataclass.
+- **web/routes/__init__.py** — `POST /api/query/stream`: SSE streaming endpoint using asyncio.Queue + StreamingResponse. Creates stage_hook → pushes events to queue → pipeline runs as async task → yields `event: stage` / `event: result` / `event: error` SSE events. `GET /api/schema/tables`: Returns table list from schema_catalog.json + relationships from table_graph.gpickle for schema explorer.
+
+### Frontend Changes
+- **web/ui/src/App.js** — `handleSubmit` now uses SSE streaming: POST to `/api/query/stream`, reads fetch ReadableStream with TextDecoder, parses SSE events, updates loadingStage in real-time as pipeline progresses, shows table names during schema selection. Falls back to regular POST `/api/query` if streaming fails. New states: `loadingStageDetail`, `parseSSE` helper. SchemaExplorerPage lazy import. Sidebar tools now include Schema (GitBranch icon).
+- **web/ui/src/components/pages/SchemaExplorerPage.js** — Standalone schema explorer page: react-flow ERD visualization, table search, tier filter buttons (gold/silver/bronze/all), loads from GET /api/schema/tables, demo data fallback with 5 sample tables + 3 relationships.
+- **web/ui/src/components/tabs/ChartTab.js** — Added SVG download button alongside PNG.
+- **web/ui/src/App.css** — `.loading-stage-detail` accent styling for streamed table names.
 
 ---
 
