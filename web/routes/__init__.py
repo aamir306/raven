@@ -504,6 +504,33 @@ async def upload_doc(
         except Exception as exc:
             logger.error("Embedding/storage failed for %s: %s", dest.name, exc)
 
+    # ── Auto-create focus document from uploaded doc ────────────────
+    if chunks_stored > 0:
+        try:
+            from src.raven.focus import FocusDocument, FocusStore
+            # Extract table refs from chunk metadata/sections
+            table_refs = list({
+                c.get("section", "")
+                for c in chunks if c.get("section")
+            })
+            doc_name = Path(file.filename or "Uploaded Document").stem
+            focus_doc = FocusDocument(
+                name=doc_name,
+                description=f"Auto-created from uploaded file: {dest.name}",
+                type="uploaded",
+                tables=table_refs[:50],  # cap
+                business_rules=[
+                    {"rule": c["text"][:500], "source": dest.name}
+                    for c in chunks[:20]  # first 20 chunks as business rules
+                ],
+                created_by="upload",
+            )
+            store = FocusStore()
+            store.create_document(focus_doc)
+            logger.info("Auto-created focus doc '%s' from upload %s", doc_name, dest.name)
+        except Exception as exc:
+            logger.warning("Failed to auto-create focus doc: %s", exc)
+
     return UploadDocResponse(
         status="indexed" if chunks_stored > 0 else "uploaded",
         filename=dest.name,
@@ -514,6 +541,73 @@ async def upload_doc(
             else f"File saved but chunking produced 0 chunks (check file content or format)."
         ),
     )
+
+
+@admin_router.get("/uploaded-docs")
+async def list_uploaded_docs(pipeline=Depends(get_pipeline)):
+    """List all uploaded documents with their chunk counts."""
+    files = []
+    if UPLOAD_DIR.exists():
+        for f in sorted(UPLOAD_DIR.iterdir()):
+            if f.is_file():
+                # Count chunks in pgvector for this file
+                chunk_count = 0
+                try:
+                    conn = pipeline.pgvector._pool.getconn()
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "SELECT COUNT(*) FROM doc_embeddings WHERE source_file = %s",
+                                (str(f),),
+                            )
+                            chunk_count = cur.fetchone()[0]
+                    finally:
+                        pipeline.pgvector._pool.putconn(conn)
+                except Exception:
+                    pass
+                files.append({
+                    "filename": f.name,
+                    "size_bytes": f.stat().st_size,
+                    "chunks": chunk_count,
+                    "uploaded_at": f.stat().st_mtime,
+                    "status": "indexed" if chunk_count > 0 else "uploaded",
+                })
+    return {"documents": files}
+
+
+@admin_router.delete("/uploaded-docs/{filename:path}")
+async def delete_uploaded_doc(filename: str, pipeline=Depends(get_pipeline)):
+    """Delete an uploaded document and its embeddings."""
+    dest = UPLOAD_DIR / filename
+    if not dest.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    # Delete embeddings
+    try:
+        conn = pipeline.pgvector._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM doc_embeddings WHERE source_file = %s",
+                    (str(dest),),
+                )
+            conn.commit()
+        finally:
+            pipeline.pgvector._pool.putconn(conn)
+    except Exception as exc:
+        logger.warning("Failed to delete embeddings for %s: %s", filename, exc)
+    # Delete focus document if exists
+    try:
+        from src.raven.focus import FocusStore
+        store = FocusStore()
+        for doc in store.list_documents():
+            if doc.get("type") == "uploaded" and dest.name in doc.get("description", ""):
+                store.delete_document(doc["id"])
+                break
+    except Exception:
+        pass
+    # Delete file
+    dest.unlink()
+    return {"status": "deleted", "filename": filename}
 
 
 @admin_router.post("/refresh", response_model=RefreshResponse)

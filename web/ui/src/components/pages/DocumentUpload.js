@@ -1,6 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Upload, message } from 'antd';
-import { FileUp, File, Trash2, Eye, X } from 'lucide-react';
+import { FileUp, File, Trash2, X, Loader } from 'lucide-react';
 
 const API_BASE = process.env.REACT_APP_API_URL || '';
 
@@ -9,6 +9,30 @@ const ACCEPTED_TYPES = '.docx,.pdf,.md,.txt,.yaml,.yml';
 export default function DocumentUpload({ onClose }) {
   const [documents, setDocuments] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [loadingDocs, setLoadingDocs] = useState(true);
+
+  // Fetch existing uploaded docs on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/api/admin/uploaded-docs`);
+        if (resp.ok) {
+          const data = await resp.json();
+          setDocuments((data.documents || []).map(d => ({
+            id: d.filename,
+            filename: d.filename,
+            chunks: d.chunks || 0,
+            date: d.uploaded_at
+              ? new Date(d.uploaded_at * 1000).toLocaleDateString()
+              : '',
+            status: d.status || 'uploaded',
+            size: d.size_bytes,
+          })));
+        }
+      } catch { /* backend not available */ }
+      setLoadingDocs(false);
+    })();
+  }, []);
 
   const handleUpload = useCallback(async (info) => {
     const { file } = info;
@@ -19,21 +43,38 @@ export default function DocumentUpload({ onClose }) {
     setUploading(false);
     if (file.status === 'done') {
       const resp = file.response;
-      setDocuments(prev => [...prev, {
-        id: Date.now(),
-        filename: resp.filename || file.name,
-        chunks: resp.chunks_created || 0,
-        date: new Date().toLocaleDateString(),
-        status: resp.status || 'uploaded',
-      }]);
+      setDocuments(prev => {
+        // Replace if re-uploading same filename, else append
+        const existing = prev.filter(d => d.filename !== (resp.filename || file.name));
+        return [...existing, {
+          id: resp.filename || file.name,
+          filename: resp.filename || file.name,
+          chunks: resp.chunks_created || 0,
+          date: new Date().toLocaleDateString(),
+          status: resp.status || 'uploaded',
+        }];
+      });
       message.success(`${file.name} uploaded — ${resp.chunks_created || 0} chunks indexed`);
     } else if (file.status === 'error') {
       message.error(`${file.name} upload failed`);
     }
   }, []);
 
-  const handleDelete = (docId) => {
-    setDocuments(prev => prev.filter(d => d.id !== docId));
+  const handleDelete = async (doc) => {
+    try {
+      const resp = await fetch(
+        `${API_BASE}/api/admin/uploaded-docs/${encodeURIComponent(doc.filename)}`,
+        { method: 'DELETE' },
+      );
+      if (resp.ok) {
+        setDocuments(prev => prev.filter(d => d.id !== doc.id));
+        message.success(`${doc.filename} deleted`);
+      } else {
+        message.error('Delete failed');
+      }
+    } catch {
+      message.error('Delete failed');
+    }
   };
 
   return (
@@ -65,7 +106,11 @@ export default function DocumentUpload({ onClose }) {
           </div>
         </Upload.Dragger>
 
-        {documents.length > 0 && (
+        {loadingDocs ? (
+          <div className="empty-state">
+            <Loader size={20} className="spin" /> Loading documents...
+          </div>
+        ) : documents.length > 0 ? (
           <div className="doc-list">
             <h3 className="doc-list-title">Uploaded Documents</h3>
             {documents.map(doc => (
@@ -80,7 +125,7 @@ export default function DocumentUpload({ onClose }) {
                 <div className="doc-item-actions">
                   <button
                     className="btn-icon-sm"
-                    onClick={() => handleDelete(doc.id)}
+                    onClick={() => handleDelete(doc)}
                     title="Delete document"
                   >
                     <Trash2 size={14} />
@@ -89,9 +134,7 @@ export default function DocumentUpload({ onClose }) {
               </div>
             ))}
           </div>
-        )}
-
-        {documents.length === 0 && (
+        ) : (
           <div className="empty-state">
             <p>No documents uploaded yet. Upload data dictionaries or business rules to improve query accuracy.</p>
           </div>
