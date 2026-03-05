@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { MessageSquare, Send, PanelLeftClose, PanelLeft, Plus, Sun, Moon,
-  Search, Database, Sparkles, HelpCircle, X, Trash2, FileUp, BookOpen, Settings } from 'lucide-react';
+  Search, Database, Sparkles, HelpCircle, X, Trash2, FileUp, BookOpen, Settings, GitBranch } from 'lucide-react';
 import ResponseCard from './components/ResponseCard';
 import Landing from './components/Landing';
 import './App.css';
@@ -8,6 +8,7 @@ import './App.css';
 const DocumentUpload = lazy(() => import('./components/pages/DocumentUpload'));
 const GlossaryEditor = lazy(() => import('./components/pages/GlossaryEditor'));
 const AdminDashboard = lazy(() => import('./components/pages/AdminDashboard'));
+const SchemaExplorerPage = lazy(() => import('./components/pages/SchemaExplorerPage'));
 
 const API_BASE = process.env.REACT_APP_API_URL || '';
 
@@ -48,6 +49,7 @@ function App() {
   const [sessionSearch, setSessionSearch] = useState('');
   const [showHelp, setShowHelp] = useState(false);
   const [activeTool, setActiveTool] = useState(null); // 'documents' | 'glossary' | 'admin' | null
+  const [loadingStageDetail, setLoadingStageDetail] = useState('');
 
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -74,19 +76,20 @@ function App() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Animate loading stages
+  // Animate loading stages — fallback timer when SSE provides no updates
   useEffect(() => {
     if (loading) {
-      setLoadingStage(0);
+      // Only start timer if not already getting SSE updates
       loadingInterval.current = setInterval(() => {
         setLoadingStage(prev => {
           if (prev < PIPELINE_STAGES.length - 1) return prev + 1;
           return prev;
         });
-      }, 3000);
+      }, 5000); // Slower fallback — SSE will update faster
     } else {
       clearInterval(loadingInterval.current);
       setLoadingStage(0);
+      setLoadingStageDetail('');
     }
     return () => clearInterval(loadingInterval.current);
   }, [loading]);
@@ -159,6 +162,26 @@ function App() {
   }, [activeSession, messages, saveSessionMessages, loadSessionMessages]);
 
   // ── Handlers ───────────────────────────────────────────────────
+  // ── SSE streaming helpers ───────────────────────────────────
+  const parseSSE = useCallback((text) => {
+    const events = [];
+    const chunks = text.split('\n\n');
+    for (const chunk of chunks) {
+      if (!chunk.trim()) continue;
+      let eventType = 'message';
+      let data = '';
+      for (const line of chunk.split('\n')) {
+        if (line.startsWith('event: ')) eventType = line.slice(7);
+        else if (line.startsWith('data: ')) data = line.slice(6);
+      }
+      if (data) {
+        try { events.push({ type: eventType, data: JSON.parse(data) }); }
+        catch { /* skip malformed */ }
+      }
+    }
+    return events;
+  }, []);
+
   const handleSubmit = useCallback(async (text) => {
     const q = (text || input).trim();
     if (!q || loading) return;
@@ -167,6 +190,7 @@ function App() {
     const newMessages = [...messages, { role: 'user', content: q }];
     setMessages(newMessages);
     setLoading(true);
+    setLoadingStage(0);
 
     // Create session if needed
     let currentSessionId = activeSession;
@@ -188,33 +212,87 @@ function App() {
       });
     }
 
+    const body = JSON.stringify({
+      question: q,
+      conversation_id: currentConversationId,
+    });
+
+    // Try SSE streaming first, fall back to regular POST
     try {
-      const resp = await fetch(`${API_BASE}/api/query`, {
+      const resp = await fetch(`${API_BASE}/api/query/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: q,
-          conversation_id: currentConversationId,
-        }),
+        body,
       });
 
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+      if (!resp.ok || !resp.body) throw new Error('SSE not available');
 
-      const updatedMessages = [...newMessages, { role: 'assistant', result: data }];
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let result = null;
+      const stageMap = {
+        router: 0, retrieval: 1, schema_selection: 2, probes: 3,
+        generation: 4, validation: 5, execute_render: 6,
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const events = parseSSE(buffer);
+        // Keep only unparsed remainder
+        const lastDoubleNewline = buffer.lastIndexOf('\n\n');
+        if (lastDoubleNewline >= 0) buffer = buffer.slice(lastDoubleNewline + 2);
+
+        for (const evt of events) {
+          if (evt.type === 'stage') {
+            const idx = stageMap[evt.data.stage];
+            if (idx !== undefined) setLoadingStage(idx);
+            if (evt.data.event === 'done' && evt.data.detail?.tables?.length) {
+              // Update stage text with table names
+              setLoadingStageDetail(evt.data.detail.tables.join(', '));
+            }
+          } else if (evt.type === 'result') {
+            result = evt.data.data || evt.data;
+          } else if (evt.type === 'error') {
+            throw new Error(evt.data.error || 'Pipeline error');
+          }
+        }
+      }
+
+      if (!result) throw new Error('No result received');
+      const updatedMessages = [...newMessages, { role: 'assistant', result }];
       setMessages(updatedMessages);
       saveSessionMessages(currentSessionId, updatedMessages);
-    } catch (err) {
-      const updatedMessages = [...newMessages, {
-        role: 'assistant',
-        result: { status: 'error', error: err.message },
-      }];
-      setMessages(updatedMessages);
-      saveSessionMessages(currentSessionId, updatedMessages);
+
+    } catch (sseErr) {
+      // Fallback to regular POST if SSE fails
+      try {
+        const resp = await fetch(`${API_BASE}/api/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+        const updatedMessages = [...newMessages, { role: 'assistant', result: data }];
+        setMessages(updatedMessages);
+        saveSessionMessages(currentSessionId, updatedMessages);
+      } catch (err) {
+        const updatedMessages = [...newMessages, {
+          role: 'assistant',
+          result: { status: 'error', error: err.message },
+        }];
+        setMessages(updatedMessages);
+        saveSessionMessages(currentSessionId, updatedMessages);
+      }
     } finally {
       setLoading(false);
+      setLoadingStageDetail('');
     }
-  }, [input, loading, activeSession, conversationId, messages, saveSessionMessages]);
+  }, [input, loading, activeSession, conversationId, messages, saveSessionMessages, parseSSE]);
 
   const handleFeedback = async (queryId, feedback, correction) => {
     try {
@@ -324,6 +402,10 @@ function App() {
             onClick={() => setActiveTool(activeTool === 'documents' ? null : 'documents')}>
             <FileUp size={14} /> Documents
           </button>
+          <button className={`sidebar-tool-btn ${activeTool === 'schema' ? 'active' : ''}`}
+            onClick={() => setActiveTool(activeTool === 'schema' ? null : 'schema')}>
+            <GitBranch size={14} /> Schema
+          </button>
           <button className={`sidebar-tool-btn ${activeTool === 'glossary' ? 'active' : ''}`}
             onClick={() => setActiveTool(activeTool === 'glossary' ? null : 'glossary')}>
             <BookOpen size={14} /> Glossary
@@ -381,6 +463,7 @@ function App() {
         {activeTool && (
           <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading...</div>}>
             {activeTool === 'documents' && <DocumentUpload onClose={() => setActiveTool(null)} />}
+            {activeTool === 'schema' && <SchemaExplorerPage onClose={() => setActiveTool(null)} />}
             {activeTool === 'glossary' && <GlossaryEditor onClose={() => setActiveTool(null)} />}
             {activeTool === 'admin' && <AdminDashboard onClose={() => setActiveTool(null)} />}
           </Suspense>
@@ -458,7 +541,12 @@ function App() {
                       <span />
                     </div>
                     <div className="loading-progress">
-                      <span className="loading-stage-text">{PIPELINE_STAGES[loadingStage]}</span>
+                      <span className="loading-stage-text">
+                        {PIPELINE_STAGES[loadingStage]}
+                        {loadingStageDetail && (
+                          <span className="loading-stage-detail"> — {loadingStageDetail}</span>
+                        )}
+                      </span>
                       <div className="loading-bar">
                         <div
                           className="loading-bar-fill"

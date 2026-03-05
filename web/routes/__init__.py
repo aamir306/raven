@@ -7,10 +7,13 @@ Modular route definitions for the FastAPI application.
 from __future__ import annotations
 
 import logging
+import json as json_module
 import uuid
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -112,6 +115,78 @@ async def query(request: QueryRequest, pipeline=Depends(get_pipeline)):
     return QueryResponse(query_id=query_id, **result)
 
 
+# ── Stage name → display label mapping
+_STAGE_LABELS = {
+    "router": "Understanding question",
+    "retrieval": "Finding relevant context",
+    "schema_selection": "Selecting tables",
+    "probes": "Running test probes",
+    "generation": "Generating SQL",
+    "validation": "Validating candidates",
+    "execute_render": "Executing query",
+}
+
+
+@query_router.post("/query/stream")
+async def query_stream(request: QueryRequest, pipeline=Depends(get_pipeline)):
+    """SSE streaming endpoint — sends stage progress events then final result."""
+    query_id = str(uuid.uuid4())[:8]
+    event_queue: asyncio.Queue = asyncio.Queue()
+
+    async def stage_hook(stage_name: str, event: str, detail: dict):
+        label = _STAGE_LABELS.get(stage_name, stage_name)
+        await event_queue.put({
+            "type": "stage",
+            "stage": stage_name,
+            "label": label,
+            "event": event,
+            "detail": detail,
+        })
+
+    async def run_pipeline():
+        try:
+            result = await pipeline.generate(
+                question=request.question,
+                conversation_id=request.conversation_id,
+                stage_hook=stage_hook,
+            )
+            result["query_id"] = query_id
+            await event_queue.put({"type": "result", "data": result})
+        except Exception as e:
+            await event_queue.put({
+                "type": "error",
+                "error": str(e),
+            })
+        finally:
+            await event_queue.put(None)  # sentinel
+
+    async def event_generator():
+        task = asyncio.create_task(run_pipeline())
+        try:
+            while True:
+                event = await event_queue.get()
+                if event is None:
+                    break
+                event_type = event.pop("type", "message")
+                yield f"event: {event_type}\ndata: {json_module.dumps(event, default=str)}\n\n"
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @query_router.post("/feedback", response_model=FeedbackResponse)
 async def feedback(request: FeedbackRequest, pipeline=Depends(get_pipeline)):
     """Submit feedback for a query result."""
@@ -148,6 +223,48 @@ async def suggestions():
     except Exception as e:
         logger.warning("Failed to load suggestions: %s", e)
         return {"suggestions": []}
+
+
+@query_router.get("/schema/tables")
+async def schema_tables():
+    """Return table list and relationships for schema explorer."""
+    import json as json_mod
+    try:
+        catalog_path = Path("data/schema_catalog.json")
+        if not catalog_path.exists():
+            return {"tables": [], "relationships": []}
+        with open(catalog_path) as f:
+            catalog = json_mod.load(f)
+
+        tables = []
+        for entry in catalog:
+            name = entry.get("table_name", "")
+            cols = []
+            for c in entry.get("columns", []):
+                cols.append({
+                    "name": c.get("column_name", c.get("name", "")),
+                    "type": c.get("data_type", c.get("type", "")),
+                })
+            tables.append({"table_name": name, "columns": cols})
+
+        # Load relationships from graph if available
+        relationships = []
+        graph_path = Path("data/table_graph.gpickle")
+        if graph_path.exists():
+            import pickle
+            with open(graph_path, "rb") as f:
+                G = pickle.load(f)
+            for u, v, data in G.edges(data=True):
+                relationships.append({
+                    "from_table": u,
+                    "to_table": v,
+                    "join_key": data.get("join_key", data.get("label", "")),
+                })
+
+        return {"tables": tables, "relationships": relationships}
+    except Exception as e:
+        logger.warning("Failed to load schema: %s", e)
+        return {"tables": [], "relationships": []}
 
 
 # ── Metrics Routes ────────────────────────────────────────────────────

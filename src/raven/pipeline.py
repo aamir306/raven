@@ -84,6 +84,9 @@ class PipelineContext:
     stage_timings: dict[str, float] = field(default_factory=dict)
     total_cost: float = 0.0
 
+    # Follow-up suggestions
+    follow_up_suggestions: list[str] = field(default_factory=list)
+
 
 class Pipeline:
     """Orchestrates the 8-stage text-to-SQL pipeline."""
@@ -168,9 +171,20 @@ class Pipeline:
             except Exception as e:
                 logger.warning("Failed to load schema catalog: %s", e)
 
-    async def generate(self, question: str, conversation_id: str | None = None) -> dict:
+    async def generate(
+        self,
+        question: str,
+        conversation_id: str | None = None,
+        stage_hook: Any | None = None,
+    ) -> dict:
         """
         Run the full pipeline for a user question.
+
+        Args:
+            question: Natural language question.
+            conversation_id: Optional multi-turn conversation ID.
+            stage_hook: Optional async callback(stage_name, event, detail_dict)
+                        called with event="start" before and event="done" after each stage.
 
         Returns a dict with: sql, data, chart, summary, confidence, timings, cost.
         """
@@ -211,12 +225,12 @@ class Pipeline:
 
         try:
             # ── Stage 1: Router ────────────────────────────────────────
-            await self._run_stage("router", self._stage_router, ctx)
+            await self._run_stage("router", self._stage_router, ctx, stage_hook)
 
             if ctx.difficulty == Difficulty.AMBIGUOUS:
                 # Fallback: try context retrieval — if schema matches found,
                 # downgrade to SIMPLE and continue instead of rejecting.
-                await self._run_stage("retrieval", self._stage_retrieval, ctx)
+                await self._run_stage("retrieval", self._stage_retrieval, ctx, stage_hook)
                 if ctx.entity_matches or ctx.glossary_matches:
                     logger.info(
                         "AMBIGUOUS downgraded to SIMPLE — %d entity + %d glossary matches for '%s'",
@@ -230,30 +244,37 @@ class Pipeline:
 
             # ── Stage 2: Context Retrieval (skip if already done in fallback)
             if not ctx.entity_matches and not ctx.glossary_matches:
-                await self._run_stage("retrieval", self._stage_retrieval, ctx)
+                await self._run_stage("retrieval", self._stage_retrieval, ctx, stage_hook)
 
             # ── Stage 3: Schema Selection ──────────────────────────────
-            await self._run_stage("schema_selection", self._stage_schema, ctx)
+            await self._run_stage("schema_selection", self._stage_schema, ctx, stage_hook)
 
             # ── Stage 4: Test Probes (complex only) ────────────────────
             if ctx.difficulty == Difficulty.COMPLEX:
-                await self._run_stage("probes", self._stage_probes, ctx)
+                await self._run_stage("probes", self._stage_probes, ctx, stage_hook)
 
             # ── Stage 5: SQL Generation ────────────────────────────────
-            await self._run_stage("generation", self._stage_generation, ctx)
+            await self._run_stage("generation", self._stage_generation, ctx, stage_hook)
 
             # ── Stage 6: Selection + Validation (complex only) ─────────
             if ctx.difficulty == Difficulty.COMPLEX and len(ctx.sql_candidates) > 1:
-                await self._run_stage("validation", self._stage_validation, ctx)
+                await self._run_stage("validation", self._stage_validation, ctx, stage_hook)
             else:
                 ctx.selected_sql = ctx.sql_candidates[0] if ctx.sql_candidates else ""
                 ctx.confidence = "MEDIUM"
 
             # ── Stage 7: Execute + Render ──────────────────────────────
-            await self._run_stage("execute_render", self._stage_execute, ctx)
+            await self._run_stage("execute_render", self._stage_execute, ctx, stage_hook)
 
             # ── Stage 8: Respond + Feedback (async, non-blocking) ──────
             asyncio.create_task(self._stage_feedback(ctx))
+
+            # ── Generate follow-up suggestions (non-blocking) ──────────
+            try:
+                ctx.follow_up_suggestions = await self._generate_followups(ctx)
+            except Exception:
+                ctx.follow_up_suggestions = []
+                logger.debug("Follow-up generation failed (non-critical)", exc_info=True)
 
         except Exception as e:
             logger.exception("Pipeline failed for question: %s", question)
@@ -404,8 +425,37 @@ class Pipeline:
 
     # ── Helpers ────────────────────────────────────────────────────────
 
-    async def _run_stage(self, name: str, fn, ctx: PipelineContext) -> None:
-        """Run a stage with timing and Prometheus instrumentation."""
+    async def _generate_followups(self, ctx: PipelineContext) -> list[str]:
+        """Generate 2-3 follow-up question suggestions using GPT-4o-mini."""
+        tables_str = ", ".join(ctx.selected_tables[:5]) if ctx.selected_tables else "unknown"
+        prompt = (
+            f"The user asked: \"{ctx.user_question}\"\n"
+            f"Tables used: {tables_str}\n"
+            f"Result: {ctx.row_count} rows returned, chart type: {ctx.chart_type}\n"
+            f"Summary: {ctx.nl_summary[:200] if ctx.nl_summary else 'N/A'}\n\n"
+            "Suggest exactly 3 natural follow-up questions the user might ask next. "
+            "Each should be a different angle: drill-down, comparison, or time-based. "
+            "Return ONLY the 3 questions, one per line, no numbering or bullets."
+        )
+        try:
+            resp = await self.openai.complete(
+                messages=[{"role": "user", "content": prompt}],
+                stage="followup_suggestions",
+                max_tokens=150,
+                temperature=0.7,
+            )
+            lines = [l.strip() for l in resp.strip().split("\n") if l.strip()]
+            return lines[:3]
+        except Exception:
+            return []
+
+    async def _run_stage(self, name: str, fn, ctx: PipelineContext, stage_hook: Any | None = None) -> None:
+        """Run a stage with timing, Prometheus instrumentation, and optional SSE hook."""
+        if stage_hook:
+            try:
+                await stage_hook(name, "start", {})
+            except Exception:
+                pass
         start = time.monotonic()
         try:
             await fn(ctx)
@@ -417,6 +467,25 @@ class Pipeline:
             ctx.stage_timings[name] = round(elapsed, 3)
             METRICS.observe_stage(name, elapsed)
             logger.info("Stage [%s] completed in %.2fs", name, elapsed)
+            if stage_hook:
+                try:
+                    detail = {"time": round(elapsed, 2)}
+                    # Include stage-specific detail for streaming UI
+                    if name == "router" and ctx.difficulty:
+                        detail["difficulty"] = ctx.difficulty.value
+                    elif name == "retrieval":
+                        detail["entities"] = len(ctx.entity_matches)
+                        detail["glossary"] = len(ctx.glossary_matches)
+                    elif name == "schema_selection":
+                        detail["tables"] = ctx.selected_tables[:5] if ctx.selected_tables else []
+                    elif name == "generation":
+                        detail["candidates"] = len(ctx.sql_candidates)
+                    elif name == "execute_render":
+                        detail["rows"] = ctx.row_count
+                        detail["chart"] = ctx.chart_type
+                    await stage_hook(name, "done", detail)
+                except Exception:
+                    pass
 
     def _success_response(self, ctx: PipelineContext) -> dict:
         return {
@@ -442,7 +511,7 @@ class Pipeline:
                 "similar_queries": len(ctx.similar_queries),
             },
             # Phase 5: follow-up suggestions (populated by Stage 8)
-            "suggestions": getattr(ctx, "follow_up_suggestions", []),
+            "suggestions": ctx.follow_up_suggestions,
         }
 
     def _ambiguous_response(self, ctx: PipelineContext) -> dict:

@@ -85,6 +85,13 @@ export default function ChartTab({ result, theme }) {
     });
   }, []);
 
+  const handleDownloadSVG = useCallback(() => {
+    if (!plotRef.current?.el) return;
+    Plotly.downloadImage(plotRef.current.el, {
+      format: 'svg', width: 1200, height: 600, filename: 'raven_chart',
+    });
+  }, []);
+
   if (!data || data.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
@@ -107,6 +114,9 @@ export default function ChartTab({ result, theme }) {
         ))}
         <button className="chart-type-btn" onClick={handleDownload} style={{ marginLeft: 'auto' }}>
           <Download size={12} /> PNG
+        </button>
+        <button className="chart-type-btn" onClick={handleDownloadSVG}>
+          <Download size={12} /> SVG
         </button>
       </div>
 

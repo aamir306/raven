@@ -528,6 +528,10 @@ body {
   animation: fadeIn 0.3s ease;
 }
 
+.loading-stage-detail {
+  font-size: 0.78rem; color: var(--accent); font-weight: 500;
+}
+
 .loading-bar {
   height: 3px; background: var(--border); border-radius: 2px;
   margin-top: 8px; overflow: hidden;
