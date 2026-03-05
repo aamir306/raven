@@ -43,8 +43,16 @@ def _clean_question(question: str, focus=None) -> str:
         table_str = ', '.join(focus.tables[:10])
         name = getattr(focus, 'name', 'this dashboard')
         return f"Show summary data from {name} covering tables: {table_str}"
+    # Try to extract a meaningful name from the Metabase URL slug (e.g. "1495-ai-guru-insights-v2")
+    slug_match = _re.search(r'/(?:dashboard|question)/\d+[-](.+?)(?:\s|$)', question)
+    if slug_match:
+        slug_name = slug_match.group(1).replace('-', ' ').strip()
+        if slug_name:
+            return f"Show data related to {slug_name}"
+    # Use focus name if available (even without tables)
+    if focus and getattr(focus, 'name', None) and 'Metabase' not in getattr(focus, 'name', ''):
+        return f"Show data related to {focus.name}"
     # No table context — do NOT synthesize a vague question (causes hallucination).
-    # Return cleaned text if any, otherwise original.
     return cleaned if (cleaned and cleaned not in ('?', '')) else question
 
 # ── Routers ───────────────────────────────────────────────────────────
@@ -257,6 +265,7 @@ async def query(request: QueryRequest, pipeline=Depends(get_pipeline)):
         conversation_id=request.conversation_id,
         focus=focus,
     )
+    result.pop("query_id", None)
     return QueryResponse(query_id=query_id, **result)
 
 
