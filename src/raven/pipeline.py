@@ -32,6 +32,7 @@ from .output.renderer import OutputRenderer
 from .feedback.collector import FeedbackCollector
 from .conversation import ConversationManager
 from .cache import QueryCache
+from .metrics import METRICS
 
 logger = logging.getLogger(__name__)
 
@@ -174,11 +175,21 @@ class Pipeline:
         Returns a dict with: sql, data, chart, summary, confidence, timings, cost.
         """
         # ── Cache check ────────────────────────────────────────────────
+        cache_start = time.monotonic()
         cached = self.cache.get(question)
         if cached is not None:
             cached["cached"] = True
+            METRICS.record_cache_hit()
+            METRICS.query_completed(
+                difficulty=cached.get("difficulty", "unknown"),
+                status=cached.get("status", "success"),
+                cached=True,
+                latency=time.monotonic() - cache_start,
+                cost=0.0,
+            )
             logger.info("Cache hit for: %s", question[:60])
             return cached
+        METRICS.record_cache_miss()
 
         # ── Multi-turn resolution ──────────────────────────────────────
         conv_result = await self.conversation.resolve_question(question, conversation_id)
@@ -196,6 +207,7 @@ class Pipeline:
             conversation_id=conversation_id,
         )
         pipeline_start = time.monotonic()
+        METRICS.query_started()
 
         try:
             # ── Stage 1: Router ────────────────────────────────────────
@@ -245,10 +257,24 @@ class Pipeline:
 
         except Exception as e:
             logger.exception("Pipeline failed for question: %s", question)
+            METRICS.query_completed(
+                difficulty=ctx.difficulty.value if ctx.difficulty else "unknown",
+                status="error",
+                latency=time.monotonic() - pipeline_start,
+                cost=ctx.total_cost,
+            )
             return self._error_response(ctx, e)
 
         ctx.stage_timings["total"] = time.monotonic() - pipeline_start
         ctx.total_cost = self.openai.get_cost_summary().get("total_usd", 0.0)
+
+        METRICS.query_completed(
+            difficulty=ctx.difficulty.value if ctx.difficulty else "unknown",
+            status="success" if ctx.selected_sql else "ambiguous",
+            latency=ctx.stage_timings["total"],
+            cost=ctx.total_cost,
+            confidence=ctx.confidence,
+        )
 
         result = self._success_response(ctx)
 
@@ -379,12 +405,18 @@ class Pipeline:
     # ── Helpers ────────────────────────────────────────────────────────
 
     async def _run_stage(self, name: str, fn, ctx: PipelineContext) -> None:
-        """Run a stage with timing."""
+        """Run a stage with timing and Prometheus instrumentation."""
         start = time.monotonic()
-        await fn(ctx)
-        elapsed = time.monotonic() - start
-        ctx.stage_timings[name] = round(elapsed, 3)
-        logger.info("Stage [%s] completed in %.2fs", name, elapsed)
+        try:
+            await fn(ctx)
+        except Exception as e:
+            METRICS.record_stage_error(name, e)
+            raise
+        finally:
+            elapsed = time.monotonic() - start
+            ctx.stage_timings[name] = round(elapsed, 3)
+            METRICS.observe_stage(name, elapsed)
+            logger.info("Stage [%s] completed in %.2fs", name, elapsed)
 
     def _success_response(self, ctx: PipelineContext) -> dict:
         return {

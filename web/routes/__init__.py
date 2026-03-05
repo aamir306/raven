@@ -114,12 +114,14 @@ async def query(request: QueryRequest, pipeline=Depends(get_pipeline)):
 @query_router.post("/feedback", response_model=FeedbackResponse)
 async def feedback(request: FeedbackRequest, pipeline=Depends(get_pipeline)):
     """Submit feedback for a query result."""
+    from src.raven.metrics import METRICS
     result = await pipeline.feedback.submit_feedback(
         query_id=request.query_id,
         feedback=request.feedback,
         correction_sql=request.correction_sql,
         correction_notes=request.correction_notes,
     )
+    METRICS.record_feedback(request.feedback)
     return FeedbackResponse(**result)
 
 
@@ -151,24 +153,14 @@ async def suggestions():
 
 
 @metrics_router.get("/metrics")
-async def metrics(pipeline=Depends(get_pipeline)):
+async def metrics():
     """Prometheus-compatible metrics endpoint."""
-    cost = pipeline.openai.get_cost_summary()
-    lines = [
-        "# HELP raven_queries_total Total queries processed",
-        "# TYPE raven_queries_total counter",
-        f'raven_queries_total {cost.get("total_queries", 0)}',
-        "",
-        "# HELP raven_cost_usd_total Total cost in USD",
-        "# TYPE raven_cost_usd_total counter",
-        f'raven_cost_usd_total {cost.get("total_cost", 0.0)}',
-        "",
-        "# HELP raven_tokens_total Total tokens used",
-        "# TYPE raven_tokens_total counter",
-        f'raven_tokens_total {cost.get("total_tokens", 0)}',
-    ]
-    from fastapi.responses import PlainTextResponse
-    return PlainTextResponse("\n".join(lines), media_type="text/plain")
+    from src.raven.metrics import METRICS
+    from fastapi.responses import Response
+    return Response(
+        content=METRICS.generate_metrics(),
+        media_type=METRICS.content_type,
+    )
 
 
 @metrics_router.get("/stats")

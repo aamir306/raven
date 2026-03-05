@@ -216,14 +216,34 @@ def save_awareness(awareness: dict, output_path: Path) -> None:
 def main():
     parser = argparse.ArgumentParser(description="Build Content Awareness for RAVEN")
     parser.add_argument("--catalog-path", default="data/schema_catalog.json")
-    parser.add_argument("--trino-host", help="Trino host (optional)")
-    parser.add_argument("--trino-port", type=int, default=8080)
+    parser.add_argument("--trino-host", help="Trino host (optional, or use --from-env)")
+    parser.add_argument("--trino-port", type=int, default=443)
     parser.add_argument("--trino-user", default="raven")
-    parser.add_argument("--trino-catalog", default="iceberg")
+    parser.add_argument("--trino-password", default=None, help="Trino password for BasicAuth")
+    parser.add_argument("--trino-catalog", default="cdp")
+    parser.add_argument("--trino-ssl-insecure", action="store_true", help="Disable SSL verification")
+    parser.add_argument("--from-env", action="store_true",
+                        help="Load Trino config from .env (TRINO_HOST, TRINO_PORT, etc.)")
     parser.add_argument("--output", default="data/content_awareness.json")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    # ── Load from .env if requested ────────────────────────────────
+    if args.from_env:
+        import os
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
+        args.trino_host = os.getenv("TRINO_HOST", args.trino_host)
+        args.trino_port = int(os.getenv("TRINO_PORT", str(args.trino_port)))
+        args.trino_user = os.getenv("TRINO_USER", args.trino_user)
+        args.trino_password = os.getenv("TRINO_PASSWORD", args.trino_password)
+        args.trino_catalog = os.getenv("TRINO_CATALOG", args.trino_catalog)
+        if os.getenv("TRINO_SSL_INSECURE", "").lower() in ("true", "1", "yes"):
+            args.trino_ssl_insecure = True
 
     catalog_path = Path(args.catalog_path)
     if not catalog_path.exists():
@@ -241,6 +261,8 @@ def main():
             port=args.trino_port,
             user=args.trino_user,
             catalog=args.trino_catalog,
+            password=args.trino_password,
+            ssl_insecure=args.trino_ssl_insecure,
         )
 
     awareness = build_content_awareness(catalog, trino_connector=trino_connector)
