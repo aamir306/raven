@@ -1,14 +1,16 @@
-import React, { useState, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useMemo, useCallback, lazy, Suspense } from 'react';
 import { Tabs } from 'antd';
 import {
-  FileText, BarChart3, Table2, Code2, Bug,
-  CheckCircle, Clock, DollarSign, Zap, GitBranch, Database
+  FileText, BarChart3, Table2, Code2, Bug, Brain,
+  CheckCircle, Clock, DollarSign, Zap, GitBranch, Database,
+  Copy, Check, Download, Image, Share2
 } from 'lucide-react';
 import SummaryTab from './tabs/SummaryTab';
 import ChartTab from './tabs/ChartTab';
 import DataTab from './tabs/DataTab';
 import SQLTab from './tabs/SQLTab';
 import DebugTab from './tabs/DebugTab';
+import ThinkingTab from './tabs/ThinkingTab';
 import FeedbackBar from './FeedbackBar';
 import CandidateComparison from './CandidateComparison';
 import QueryRefinement from './QueryRefinement';
@@ -16,16 +18,18 @@ import QueryRefinement from './QueryRefinement';
 const SchemaExplorer = lazy(() => import('./SchemaExplorer'));
 
 const TAB_CONFIG = [
-  { key: 'summary', label: 'Summary',  icon: <FileText size={14} /> },
-  { key: 'chart',   label: 'Chart',    icon: <BarChart3 size={14} /> },
-  { key: 'data',    label: 'Data',     icon: <Table2 size={14} /> },
-  { key: 'sql',     label: 'SQL',      icon: <Code2 size={14} /> },
-  { key: 'debug',   label: 'Debug',    icon: <Bug size={14} /> },
+  { key: 'summary',  label: 'Summary',  icon: <FileText size={14} /> },
+  { key: 'chart',    label: 'Chart',    icon: <BarChart3 size={14} /> },
+  { key: 'data',     label: 'Data',     icon: <Table2 size={14} /> },
+  { key: 'sql',      label: 'SQL',      icon: <Code2 size={14} /> },
+  { key: 'thinking', label: 'Thinking', icon: <Brain size={14} /> },
+  { key: 'debug',    label: 'Debug',    icon: <Bug size={14} /> },
 ];
 
 export default function ResponseCard({ result, visibleTabs, onFeedback, onRerun, theme }) {
   const [activeTab, setActiveTab] = useState('summary');
   const [showSchema, setShowSchema] = useState(false);
+  const [copiedSQL, setCopiedSQL] = useState(false);
 
   const totalTime = useMemo(() => {
     const t = result.timings?.total;
@@ -39,13 +43,11 @@ export default function ResponseCard({ result, visibleTabs, onFeedback, onRerun,
   const tabs = TAB_CONFIG.filter(t => visibleTabs.includes(t.key));
 
   const handleCandidateSelect = (idx) => {
-    // Future: send preferred candidate feedback to backend
     console.log('User preferred candidate:', idx);
   };
 
   const handleRefine = (refinement) => {
     if (onRerun && refinement.type !== 'clear') {
-      // Build refinement text and re-run
       let suffix = '';
       if (refinement.type === 'date_range') {
         suffix = ` between ${refinement.start} and ${refinement.end}`;
@@ -58,6 +60,47 @@ export default function ResponseCard({ result, visibleTabs, onFeedback, onRerun,
     }
   };
 
+  const handleCopySQL = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(result.sql || '');
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = result.sql || '';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    setCopiedSQL(true);
+    setTimeout(() => setCopiedSQL(false), 2000);
+  }, [result.sql]);
+
+  const handleDownloadCSV = useCallback(() => {
+    if (!result.data?.length) return;
+    const cols = Object.keys(result.data[0]);
+    const header = cols.join(',');
+    const rows = result.data.map(row =>
+      cols.map(c => {
+        const v = row[c];
+        if (v == null) return '';
+        const s = String(v);
+        return s.includes(',') || s.includes('"') || s.includes('\n')
+          ? `"${s.replace(/"/g, '""')}"` : s;
+      }).join(',')
+    );
+    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'raven_results.csv'; a.click();
+    URL.revokeObjectURL(url);
+  }, [result.data]);
+
+  const handleShareLink = useCallback(() => {
+    const params = new URLSearchParams({ q: result.question || '' });
+    const link = `${window.location.origin}?${params}`;
+    navigator.clipboard.writeText(link).catch(() => {});
+  }, [result.question]);
+
   const tabItems = tabs.map(t => ({
     key: t.key,
     label: (
@@ -67,11 +110,12 @@ export default function ResponseCard({ result, visibleTabs, onFeedback, onRerun,
     ),
     children: (
       <div className="tab-content">
-        {t.key === 'summary' && <SummaryTab result={result} />}
-        {t.key === 'chart'   && <ChartTab result={result} theme={theme} />}
-        {t.key === 'data'    && <DataTab result={result} />}
-        {t.key === 'sql'     && <SQLTab result={result} theme={theme} onRerun={onRerun} />}
-        {t.key === 'debug'   && (
+        {t.key === 'summary'  && <SummaryTab result={result} />}
+        {t.key === 'chart'    && <ChartTab result={result} theme={theme} />}
+        {t.key === 'data'     && <DataTab result={result} />}
+        {t.key === 'sql'      && <SQLTab result={result} theme={theme} onRerun={onRerun} />}
+        {t.key === 'thinking' && <ThinkingTab result={result} />}
+        {t.key === 'debug'    && (
           <div>
             <DebugTab result={result} />
             {result.debug?.selected_tables?.length > 0 && (
@@ -146,6 +190,21 @@ export default function ResponseCard({ result, visibleTabs, onFeedback, onRerun,
         debug={result.debug}
         onRefine={handleRefine}
       />
+
+      {/* Action bar */}
+      <div className="action-bar">
+        <button className="action-bar-btn" onClick={handleCopySQL} title="Copy SQL">
+          {copiedSQL ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy SQL</>}
+        </button>
+        {result.data?.length > 0 && (
+          <button className="action-bar-btn" onClick={handleDownloadCSV} title="Download CSV">
+            <Download size={13} /> CSV
+          </button>
+        )}
+        <button className="action-bar-btn" onClick={handleShareLink} title="Copy share link">
+          <Share2 size={13} /> Share
+        </button>
+      </div>
 
       {/* Feedback */}
       <FeedbackBar

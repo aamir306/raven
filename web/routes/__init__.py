@@ -230,3 +230,68 @@ async def refresh(request: RefreshRequest, pipeline=Depends(get_pipeline)):
         stages_triggered=stages,
         message="Refresh queued." if not request.dry_run else "Dry run — no changes made.",
     )
+
+
+# ── Glossary Routes ───────────────────────────────────────────────
+
+
+GLOSSARY_FILE = Path("config/glossary_terms.json")
+
+
+def _load_glossary() -> list[dict]:
+    """Load glossary terms from JSON file."""
+    if not GLOSSARY_FILE.exists():
+        return []
+    try:
+        import json
+        return json.loads(GLOSSARY_FILE.read_text())
+    except Exception:
+        return []
+
+
+def _save_glossary(terms: list[dict]):
+    """Persist glossary terms to JSON file."""
+    import json
+    GLOSSARY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    GLOSSARY_FILE.write_text(json.dumps(terms, indent=2))
+
+
+@admin_router.get("/glossary")
+async def list_glossary():
+    """List all business glossary terms."""
+    return {"terms": _load_glossary()}
+
+
+@admin_router.post("/glossary")
+async def add_glossary_term(term: dict):
+    """Add a new glossary term."""
+    terms = _load_glossary()
+    term.setdefault("id", int(uuid.uuid4().int % 1e9))
+    terms.append(term)
+    _save_glossary(terms)
+    logger.info("Glossary term added: %s", term.get("term"))
+    return {"status": "created", "term": term}
+
+
+@admin_router.put("/glossary/{term_id}")
+async def update_glossary_term(term_id: int, term: dict):
+    """Update an existing glossary term."""
+    terms = _load_glossary()
+    for i, t in enumerate(terms):
+        if t.get("id") == term_id:
+            terms[i] = {**term, "id": term_id}
+            _save_glossary(terms)
+            return {"status": "updated", "term": terms[i]}
+    raise HTTPException(status_code=404, detail="Term not found")
+
+
+@admin_router.delete("/glossary/{term_id}")
+async def delete_glossary_term(term_id: int):
+    """Delete a glossary term."""
+    terms = _load_glossary()
+    filtered = [t for t in terms if t.get("id") != term_id]
+    if len(filtered) == len(terms):
+        raise HTTPException(status_code=404, detail="Term not found")
+    _save_glossary(filtered)
+    return {"status": "deleted"}
+

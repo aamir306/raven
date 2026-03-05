@@ -1,16 +1,20 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { MessageSquare, Send, PanelLeftClose, PanelLeft, Plus, Sun, Moon,
-  Search, Database, Sparkles, HelpCircle, X, Trash2 } from 'lucide-react';
+  Search, Database, Sparkles, HelpCircle, X, Trash2, FileUp, BookOpen, Settings } from 'lucide-react';
 import ResponseCard from './components/ResponseCard';
 import Landing from './components/Landing';
 import './App.css';
+
+const DocumentUpload = lazy(() => import('./components/pages/DocumentUpload'));
+const GlossaryEditor = lazy(() => import('./components/pages/GlossaryEditor'));
+const AdminDashboard = lazy(() => import('./components/pages/AdminDashboard'));
 
 const API_BASE = process.env.REACT_APP_API_URL || '';
 
 const PERSONAS = {
   business: { label: 'Business User', visibleTabs: ['summary', 'chart'] },
-  analyst:  { label: 'Analyst',       visibleTabs: ['summary', 'chart', 'data', 'sql'] },
-  engineer: { label: 'Engineer',      visibleTabs: ['summary', 'chart', 'data', 'sql', 'debug'] },
+  analyst:  { label: 'Analyst',       visibleTabs: ['summary', 'chart', 'data', 'sql', 'thinking'] },
+  engineer: { label: 'Engineer',      visibleTabs: ['summary', 'chart', 'data', 'sql', 'thinking', 'debug'] },
 };
 
 // Pipeline stage names for loading progress
@@ -43,6 +47,7 @@ function App() {
   const [suggestions, setSuggestions] = useState([]);
   const [sessionSearch, setSessionSearch] = useState('');
   const [showHelp, setShowHelp] = useState(false);
+  const [activeTool, setActiveTool] = useState(null); // 'documents' | 'glossary' | 'admin' | null
 
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -313,6 +318,24 @@ function App() {
           )}
         </div>
 
+        <div className="sidebar-tools">
+          <div className="sidebar-section-label">Tools</div>
+          <button className={`sidebar-tool-btn ${activeTool === 'documents' ? 'active' : ''}`}
+            onClick={() => setActiveTool(activeTool === 'documents' ? null : 'documents')}>
+            <FileUp size={14} /> Documents
+          </button>
+          <button className={`sidebar-tool-btn ${activeTool === 'glossary' ? 'active' : ''}`}
+            onClick={() => setActiveTool(activeTool === 'glossary' ? null : 'glossary')}>
+            <BookOpen size={14} /> Glossary
+          </button>
+          {persona === 'engineer' && (
+            <button className={`sidebar-tool-btn ${activeTool === 'admin' ? 'active' : ''}`}
+              onClick={() => setActiveTool(activeTool === 'admin' ? null : 'admin')}>
+              <Settings size={14} /> Admin
+            </button>
+          )}
+        </div>
+
         <div className="sidebar-footer">
           <select
             className="persona-select"
@@ -354,6 +377,18 @@ function App() {
           </span>
         </div>
 
+        {/* Tool panels */}
+        {activeTool && (
+          <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading...</div>}>
+            {activeTool === 'documents' && <DocumentUpload onClose={() => setActiveTool(null)} />}
+            {activeTool === 'glossary' && <GlossaryEditor onClose={() => setActiveTool(null)} />}
+            {activeTool === 'admin' && <AdminDashboard onClose={() => setActiveTool(null)} />}
+          </Suspense>
+        )}
+
+        {/* Chat area — hidden when tool is active */}
+        {!activeTool && (
+        <>
         <div className="chat-area">
           {isEmpty ? (
             <Landing
@@ -440,7 +475,6 @@ function App() {
           )}
         </div>
 
-        {/* Input Bar */}
         <div className={`input-bar-container ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
           <div className="input-bar">
             <textarea
@@ -462,6 +496,8 @@ function App() {
             </button>
           </div>
         </div>
+        </>
+        )}
       </main>
 
       {/* Help Modal */}
