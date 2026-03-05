@@ -443,7 +443,7 @@ async def upload_doc(
     file: UploadFile = File(...),
     pipeline=Depends(get_pipeline),
 ):
-    """Upload a documentation file (Markdown, PDF, Word)."""
+    """Upload a documentation file (Markdown, PDF, Word), chunk it, embed, and store."""
     allowed = {".md", ".txt", ".pdf", ".docx", ".doc", ".yaml", ".yml"}
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in allowed:
@@ -459,14 +459,60 @@ async def upload_doc(
     dest.write_bytes(content)
     logger.info("Uploaded doc: %s (%d bytes)", dest.name, len(content))
 
-    # TODO: Phase 3 — auto-ingest uploaded doc into pgvector
-    chunks_created = 0
+    # ── Chunk the file ────────────────────────────────────────────────
+    from preprocessing.ingest_documentation import (
+        chunk_docx, chunk_markdown, chunk_text, chunk_pdf, chunk_annotations,
+    )
+
+    _chunkers = {
+        ".md": chunk_markdown,
+        ".txt": chunk_text,
+        ".doc": chunk_text,
+        ".docx": chunk_docx,
+        ".pdf": chunk_pdf,
+        ".yaml": chunk_annotations,
+        ".yml": chunk_annotations,
+    }
+    chunker = _chunkers.get(suffix)
+    chunks: list[dict] = []
+    if chunker:
+        try:
+            chunks = chunker(dest)
+            logger.info("Chunked %s → %d chunks", dest.name, len(chunks))
+        except Exception as exc:
+            logger.error("Chunking failed for %s: %s", dest.name, exc)
+
+    # ── Embed & store in pgvector (incremental — no table wipe) ───────
+    chunks_stored = 0
+    if chunks:
+        try:
+            texts = [c["text"] for c in chunks]
+            embeddings = await pipeline.openai.batch_embed(texts)
+            for chunk, emb in zip(chunks, embeddings):
+                pipeline.pgvector.insert(
+                    table="doc_embeddings",
+                    text="",
+                    embedding=emb,
+                    metadata=chunk.get("metadata", {}),
+                    source_file=str(dest),
+                    table_ref=chunk.get("section", ""),
+                    content=chunk["text"],
+                    doc_type=chunk.get("metadata", {}).get("file_type", "unknown"),
+                )
+                chunks_stored += 1
+            logger.info("Stored %d embeddings for %s", chunks_stored, dest.name)
+        except Exception as exc:
+            logger.error("Embedding/storage failed for %s: %s", dest.name, exc)
 
     return UploadDocResponse(
-        status="uploaded",
+        status="indexed" if chunks_stored > 0 else "uploaded",
         filename=dest.name,
-        chunks_created=chunks_created,
-        message=f"File saved. Ingestion into vector store is pending (Phase 3).",
+        chunks_created=chunks_stored,
+        message=(
+            f"Indexed {chunks_stored} chunks into vector store."
+            if chunks_stored > 0
+            else f"File saved but chunking produced 0 chunks (check file content or format)."
+        ),
     )
 
 

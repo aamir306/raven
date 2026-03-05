@@ -80,3 +80,6 @@ tests/eval_ab_candidates.py
 config/semantic_model.yaml
 web/ui/node_modules/
 web/ui/package-lock.json
+
+# User uploads
+data/uploads/
