@@ -119,13 +119,17 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 
 ## Accuracy Targets
 
-| Phase | Timeline | Accuracy | Key Drivers |
-|---|---|---|---|
-| Phase 1 | Weeks 1-3 | 70-75% | Core pipeline + dbt + Metabase few-shot + Trino dialect |
-| Phase 2 | Weeks 4-5 | 75-80% | PExA probes + error taxonomy + chart/summary |
-| Phase 3 | Weeks 6-8 | 80-85% | Expanded glossary + feedback loop + more few-shot |
-| Phase 4 | Weeks 9-12 | 82-88% | Production hardening + accumulated corrections |
-| Future | 6+ months | 88-92% | RLVR fine-tune Qwen2.5-Coder-32B (needs GPU) |
+| Phase | Timeline | Target | Actual | Key Drivers |
+|---|---|---|---|---|
+| Phase 1 | Weeks 1-3 | 70-75% | — | Core pipeline + dbt + Metabase few-shot + Trino dialect |
+| Phase 2 | Weeks 4-5 | 75-80% | — | PExA probes + error taxonomy + chart/summary |
+| Phase 3 | Weeks 6-8 | 80-85% | **53.3%** (30q sample) | Expanded glossary + feedback loop + more few-shot |
+| Phase 5 | Weeks 13-16 | — | — | UI redesign + open-source sanitization |
+| Phase 6 | Weeks 17-20 | — | **in progress** | Prometheus metrics + data quality tooling |
+| Phase 4 | Weeks 9-12 | 82-88% | — | Production hardening + accumulated corrections |
+| Future | 6+ months | 88-92% | — | RLVR fine-tune Qwen2.5-Coder-32B (needs GPU) |
+
+**Key gap:** 53.3% actual vs 80-85% target. Root cause: 99.6% of tables have no descriptions, 100% of content awareness stats are null. Data quality population (auto_describe + content awareness) is the highest-leverage next step.
 
 ---
 
@@ -335,10 +339,42 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 
 ---
 
+## Current Project Status (March 5, 2026)
+
+**HEAD:** `0600663` (Phase 6) on `main`, pushed to GitHub
+
+| Phase | Status | Commit |
+|---|---|---|
+| Phase 1 (Weeks 1-3) | ✅ Complete | 63fbe72 |
+| Phase 2 (Weeks 4-5) | ✅ Complete | fd548cf |
+| Phase 3 (Weeks 6-8) | ✅ Complete | 152f3f8 |
+| Phase 5 (Weeks 13-16) | ✅ Complete | b43c4f7 |
+| Phase 6 (Weeks 17-20) | 🟡 Tooling done, data population pending | 0600663 |
+| Phase 4 (Weeks 9-12) | ⬜ Not started | — |
+
+**Phase 6 remaining:**
+- [ ] Run `auto_describe.py` on gold+silver tables (~$0.36, fills 99.6% empty descriptions)
+- [ ] Run `build_content_awareness.py --from-env` (fills 49K null column stats from Trino)
+- [ ] Re-embed updated schema_catalog into pgvector
+- [ ] Re-run 30-question eval to measure accuracy lift
+- [ ] Run `export_finetuning_data.py` once query_log accumulates thumbs-up pairs
+
+**Phase 4 next (production hardening):**
+- [ ] SSO authentication + row-level security
+- [ ] Rate limiting (per-user: 20 queries/hour)
+- [ ] Alerting: accuracy drop, cost spike, Trino timeout
+- [ ] Auto-refresh preprocessing on dbt deploy
+- [ ] Slack bot integration
+- [ ] Admin dashboard + load testing
+
+---
+
 ## Git History
 
 | Commit | Message |
 |---|---|
+| 0600663 | Phase 6: Prometheus metrics, data quality tooling, Grafana dashboard |
+| b43c4f7 | Phase 5: Full UI redesign + open-source sanitization |
 | 152f3f8 | Phase 3: semantic model 57 rules, gen_complex, model routing fallback, did-you-mean, confidence calibration |
 | c5490e5 | Fix AMBIGUOUS routing + add fallback for edge cases |
 | fce3568 | Rewrite eval harness for real infrastructure integration |
@@ -429,19 +465,8 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 - **web/routes/__init__.py** — /api/metrics now returns proper prometheus_client exposition format. Feedback endpoint records METRICS.record_feedback().
 - **preprocessing/build_content_awareness.py** — Added --trino-password, --trino-ssl-insecure, --from-env CLI flags for proper Trino authentication. Default port 443, catalog cdp.
 
-### Git History
-
-| Commit | Message |
-|---|---|
-| b43c4f7 | Phase 5: UI redesign, open-source sanitization |
-| 152f3f8 | Phase 3: semantic model 57 rules, gen_complex, model routing fallback, did-you-mean, confidence calibration |
-| c5490e5 | Fix AMBIGUOUS routing + add fallback for edge cases |
-| fce3568 | Rewrite eval harness for real infrastructure integration |
-| 8a2bb7c | Add 200-question CDP test set + glossary embedding fixes |
-| 4a3dcac | Update memory.md with Phase 3 details |
-| 5c43753 | Phase 3: async search, caching, multi-turn, feedback, semantic model |
-| c500deb | feat: preprocessing + embedding + bug fixes + E2E 6/6 |
-| 8cf9e84 | Connect to real infrastructure: Azure OpenAI + Trino + pgvector |
-| fd548cf | Phase 2 Week 5: Web service + React UI + Docker + K8s |
-| 120748b | Phase 2 Week 4: Extended test set to 100 questions |
-| 63fbe72 | Phase 1 Weeks 1-3: Core pipeline |
+### Phase 6 Remaining
+- [ ] Run `auto_describe.py` (gold ~$0.11, silver ~$0.25)
+- [ ] Run `build_content_awareness.py --from-env` (populate 49K null stats)
+- [ ] Re-embed updated schema_catalog into pgvector
+- [ ] Re-run 30-question eval to measure accuracy lift

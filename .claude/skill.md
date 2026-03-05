@@ -102,9 +102,16 @@ raven/
 │   ├── build_table_graph.py
 │   ├── build_glossary.py
 │   ├── ingest_documentation.py
+│   ├── auto_describe.py     # Phase 6: GPT-4o-mini auto table/column descriptions
+│   ├── export_finetuning_data.py  # Phase 6: RLVR fine-tuning data export
 │   └── refresh_all.py
+├── scripts/                # Utility scripts
+│   └── assess_data_quality.py  # Phase 6: Data quality gap analysis
 ├── src/raven/              # Core pipeline
 │   ├── pipeline.py         # Main orchestrator
+│   ├── metrics.py          # Phase 6: Prometheus instrumentation
+│   ├── cache.py            # Phase 3: Query result cache
+│   ├── conversation.py     # Phase 3: Multi-turn conversation
 │   ├── router/             # Stage 1
 │   ├── retrieval/          # Stage 2 (6 sub-modules)
 │   ├── schema/             # Stage 3 (4 sub-modules)
@@ -118,27 +125,39 @@ raven/
 ├── web/                    # FastAPI + React UI
 ├── prompts/                # All prompt templates (16 files)
 ├── data/                   # Generated artifacts (gitignored)
-├── tests/                  # Test set + evaluation scripts
-└── k8s/                    # Kubernetes manifests
+├── tests/                  # 200-question test set + evaluation scripts
+└── k8s/                    # Kubernetes manifests + Grafana dashboard
 ```
 
 See `injection/references/text-to-sql-v4-final.md` Section 6 for the full file-by-file breakdown.
 
 ## Implementation Phases
 
-### Phase 1 (Weeks 1-3): Core Pipeline — Target 70-75%
-- Week 1: Connectors (Trino, pgvector, OpenAI) + Docker + basic test
-- Week 2: Full preprocessing pipeline (dbt, Metabase, LSH, content awareness, graph, glossary)
-- Week 3: All 8 stages wired together + 50-question test set + accuracy eval
+### Phase 1 (Weeks 1-3): Core Pipeline — ✅ COMPLETE
+- Connectors (Trino, pgvector, OpenAI) + Docker + basic test
+- Full preprocessing pipeline (dbt, Metabase, LSH, content awareness, graph, glossary)
+- All 8 stages wired together + 50-question test set + accuracy eval
 
-### Phase 2 (Weeks 4-5): Probes + Validation + Web — Target 75-80%
-- Week 4: PExA probes, error taxonomy checker, cost guard, chart/summary output
-- Week 5: FastAPI + React UI + K8s deployment + 5-10 beta users
+### Phase 2 (Weeks 4-5): Probes + Validation + Web — ✅ COMPLETE
+- PExA probes, error taxonomy checker, cost guard, chart/summary output
+- FastAPI + React UI + K8s deployment
 
-### Phase 3 (Weeks 6-8): Accuracy Optimization — Target 80-85%
-- Failure analysis, glossary expansion, more few-shot, feedback loop, multi-turn, caching
+### Phase 3 (Weeks 6-8): Accuracy Optimization — ✅ COMPLETE
+- Semantic model expanded to 57 rules, 19 verified queries
+- Feedback loop, multi-turn conversation, caching
+- Eval: 53.3% pass rate (30q sample), 93.3% exec success
 
-### Phase 4 (Weeks 9-12): Production — Target 82-88%
+### Phase 5 (Weeks 13-16): UI Redesign — ✅ COMPLETE
+- Production UI: antd, Monaco Editor, Plotly, lucide-react, react-flow
+- Open-source sanitization (removed all company-specific references)
+
+### Phase 6 (Weeks 17-20): Infrastructure + Data Quality — 🟡 IN PROGRESS
+- Prometheus metrics module (`src/raven/metrics.py`)
+- Grafana dashboard (`k8s/grafana-dashboard.json`)
+- Auto-describe script, fine-tuning data export, data quality assessment
+- **Remaining:** Run auto_describe + content awareness population + re-embed + re-eval
+
+### Phase 4 (Weeks 9-12): Production — ⬜ NOT STARTED (Target: 82-88%)
 - Auth, monitoring, Slack bot, admin dashboard, load testing
 
 ## Component Implementation Guide

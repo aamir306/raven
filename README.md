@@ -29,6 +29,18 @@ Naive LLM-to-SQL approaches achieve **~6% accuracy** on enterprise-scale schemas
 
 **Target: 82-88% execution accuracy** on enterprise Trino environments.
 
+## Current Status
+
+| Phase | Status | Description |
+|---|---|---|
+| Phase 1-3 | ✅ Complete | Core 8-stage pipeline, 230 tests, semantic model (57 rules), multi-turn, caching |
+| Phase 5 | ✅ Complete | Production UI (antd, Monaco Editor, Plotly, react-flow) |
+| Phase 6 | 🟡 In Progress | Prometheus metrics, Grafana dashboard, data quality tooling |
+| Phase 4 | ⬜ Planned | SSO auth, rate limiting, Slack bot, admin dashboard |
+
+**Eval baseline (30-question sample):** 53.3% pass rate, 93.3% execution success, $1.31/query avg cost.\
+**Key bottleneck:** Schema descriptions are 99.6% empty — data quality population is the highest-leverage improvement.
+
 ## Architecture
 
 ```
@@ -87,7 +99,7 @@ See [docs/architecture.md](docs/architecture.md) for the full design document.
 ### 1. Clone & Configure
 
 ```bash
-git clone https://github.com/YOUR_ORG/raven.git
+git clone https://github.com/aamir306/raven.git
 cd raven
 cp .env.example .env
 # Edit .env with your Trino, OpenAI, and PostgreSQL credentials
@@ -130,6 +142,18 @@ Or open `http://localhost:8000` for the web UI.
 | `config/cost_guards.yaml` | Query cost limits, partition requirements |
 | `config/semantic_model.yaml` | Business glossary (dimensions, metrics, synonyms) |
 
+## Monitoring
+
+RAVEN exposes a Prometheus-compatible `/api/metrics` endpoint with:
+
+- **Query latency** histograms (by difficulty, cached/uncached)
+- **Stage latency** histograms (per pipeline stage)
+- **Query cost** histograms (USD per query)
+- **Counters** for cache hits/misses, errors by stage, token usage, feedback
+- **Gauge** for in-flight queries
+
+Import the provided Grafana dashboard from `k8s/grafana-dashboard.json`.
+
 ## Project Structure
 
 ```
@@ -137,9 +161,14 @@ raven/
 ├── config/                 # Configuration files
 ├── docs/                   # Architecture docs, build guide, decision log
 ├── preprocessing/          # Data ingestion scripts (dbt, Metabase, LSH, etc.)
+│   ├── auto_describe.py    # GPT-4o-mini auto table/column descriptions
+│   ├── export_finetuning_data.py  # RLVR fine-tuning data export
+│   └── ...                 # 10 preprocessing scripts total
 ├── prompts/                # All 16 LLM prompt templates
+├── scripts/                # Utility scripts (data quality assessment)
 ├── src/raven/              # Core pipeline
 │   ├── pipeline.py         # Main orchestrator
+│   ├── metrics.py          # Prometheus instrumentation
 │   ├── router/             # Stage 1: Difficulty classification
 │   ├── retrieval/          # Stage 2: Context retrieval (6 sub-modules)
 │   ├── schema/             # Stage 3: Schema selection (4 sub-modules)
@@ -151,8 +180,8 @@ raven/
 │   ├── feedback/           # Rating and correction pipeline
 │   └── safety/             # Query validation, data policy
 ├── web/                    # FastAPI API + React UI
-├── tests/                  # Test set + evaluation scripts
-├── k8s/                    # Kubernetes deployment manifests
+├── tests/                  # 200-question test set + evaluation scripts
+├── k8s/                    # Kubernetes manifests + Grafana dashboard
 └── data/                   # Generated artifacts (gitignored)
 ```
 
