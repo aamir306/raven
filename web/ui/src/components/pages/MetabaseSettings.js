@@ -4,6 +4,7 @@ import { X, Wifi, WifiOff, Key, Link, Database, FolderOpen, Save, Loader } from 
 const API_BASE = process.env.REACT_APP_API_URL || '';
 
 // Keys for localStorage
+const LS_MB_URL = 'raven_mb_url';
 const LS_SESSION_ID = 'raven_mb_session_id';
 const LS_DATABASE_ID = 'raven_mb_database_id';
 const LS_COLLECTION = 'raven_mb_collection';
@@ -14,6 +15,7 @@ const LS_COLLECTION = 'raven_mb_collection';
  */
 export function getMetabaseBrowserConfig() {
   return {
+    _mb_url: localStorage.getItem(LS_MB_URL) || '',
     _mb_session_id: localStorage.getItem(LS_SESSION_ID) || '',
     _mb_database_id: localStorage.getItem(LS_DATABASE_ID) || '',
     _mb_collection_name: localStorage.getItem(LS_COLLECTION) || '',
@@ -32,6 +34,7 @@ export default function MetabaseSettings({ onClose }) {
   const [saved, setSaved] = useState(false);
 
   // Browser-side config
+  const [mbUrl, setMbUrl] = useState(() => localStorage.getItem(LS_MB_URL) || '');
   const [sessionId, setSessionId] = useState(() => localStorage.getItem(LS_SESSION_ID) || '');
   const [databaseId, setDatabaseId] = useState(() => localStorage.getItem(LS_DATABASE_ID) || '');
   const [collectionName, setCollectionName] = useState(() => localStorage.getItem(LS_COLLECTION) || '');
@@ -45,6 +48,8 @@ export default function MetabaseSettings({ onClose }) {
   }, []);
 
   const handleSaveBrowserConfig = () => {
+    if (mbUrl) localStorage.setItem(LS_MB_URL, mbUrl);
+    else localStorage.removeItem(LS_MB_URL);
     if (sessionId) localStorage.setItem(LS_SESSION_ID, sessionId);
     else localStorage.removeItem(LS_SESSION_ID);
     if (databaseId) localStorage.setItem(LS_DATABASE_ID, databaseId);
@@ -63,6 +68,7 @@ export default function MetabaseSettings({ onClose }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          _mb_url: mbUrl || undefined,
           _mb_session_id: sessionId || undefined,
         }),
       });
@@ -91,11 +97,12 @@ export default function MetabaseSettings({ onClose }) {
               <h3>Server Configuration</h3>
               <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
                 Set in <code>.env</code> on the server. Restart required after changes.
+                Or configure URL below in Your Settings.
               </p>
               <div className="settings-row">
                 <span className="settings-label">Metabase URL</span>
                 <span className="settings-value">
-                  {config?.url || <em className="text-muted">Not configured</em>}
+                  {config?.url || <em className="text-muted">Not configured (set below)</em>}
                 </span>
               </div>
               <div className="settings-row">
@@ -116,6 +123,20 @@ export default function MetabaseSettings({ onClose }) {
               <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
                 Saved in your browser only. Not sent to the server until you push to Metabase.
               </p>
+
+              <label className="settings-field">
+                <span className="settings-field-label"><Link size={12} /> Metabase URL</span>
+                <input
+                  type="url"
+                  value={mbUrl}
+                  onChange={e => setMbUrl(e.target.value)}
+                  placeholder="https://metabase-prod.penpencil.co"
+                  className="settings-input"
+                />
+                <span className="settings-field-hint">
+                  Your Metabase instance URL. Overrides server .env if set.
+                </span>
+              </label>
 
               <label className="settings-field">
                 <span className="settings-field-label"><Key size={12} /> Session ID</span>
@@ -174,7 +195,7 @@ export default function MetabaseSettings({ onClose }) {
               <button
                 className="btn-secondary"
                 onClick={handleTestConnection}
-                disabled={testing || !config?.url}
+                disabled={testing || (!config?.url && !mbUrl)}
                 style={{ marginBottom: 12 }}
               >
                 {testing ? <><Loader size={14} className="spin" /> Testing...</> : <><Wifi size={14} /> Test Connection</>}

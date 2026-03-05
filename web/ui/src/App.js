@@ -7,6 +7,7 @@ import Landing from './components/Landing';
 import FocusDropdown from './components/FocusDropdown';
 import FocusBanner from './components/FocusBanner';
 import MetabaseLinkPreview, { detectMetabaseUrl, fetchLinkPreview } from './components/MetabaseLinkPreview';
+import { getMetabaseBrowserConfig } from './components/pages/MetabaseSettings';
 import './App.css';
 
 const DocumentUpload = lazy(() => import('./components/pages/DocumentUpload'));
@@ -237,11 +238,13 @@ function App() {
       });
     }
 
+    const mbConfig = getMetabaseBrowserConfig();
     const body = JSON.stringify({
       question: cleanQ,
       conversation_id: currentConversationId,
       focus_id: activeFocus?.id || null,
       metabase_url: detectedUrl || null,
+      mb_session_id: mbConfig._mb_session_id || null,
     });
 
     // Clear link preview on send

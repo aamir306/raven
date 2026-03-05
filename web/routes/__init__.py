@@ -35,18 +35,17 @@ def _clean_question(question: str, focus=None) -> str:
     """Strip URLs from a question and, if the remainder is a meta-question
     about a dashboard, synthesize a concrete data question from focus context."""
     cleaned = _URL_RE.sub('', question).strip()
-    # If nothing meaningful remains after URL removal, use focus context
-    if not cleaned or _META_Q_RE.match(cleaned) or cleaned in ('?', ''):
-        if focus and getattr(focus, 'tables', None):
-            table_str = ', '.join(focus.tables[:10])
-            name = getattr(focus, 'name', 'this dashboard')
-            cleaned = f"Show summary data from {name} covering tables: {table_str}"
-        elif focus and getattr(focus, 'name', None):
-            cleaned = f"Show data from {focus.name}"
-        else:
-            # Fall back to original (let the router decide)
-            return question
-    return cleaned
+    # If remaining text is meaningful (not just a meta-question), use it directly
+    if cleaned and not _META_Q_RE.match(cleaned) and cleaned not in ('?', ''):
+        return cleaned
+    # User typed just a URL or a meta-question — need focus context to synthesize
+    if focus and getattr(focus, 'tables', None):
+        table_str = ', '.join(focus.tables[:10])
+        name = getattr(focus, 'name', 'this dashboard')
+        return f"Show summary data from {name} covering tables: {table_str}"
+    # No table context — do NOT synthesize a vague question (causes hallucination).
+    # Return cleaned text if any, otherwise original.
+    return cleaned if (cleaned and cleaned not in ('?', '')) else question
 
 # ── Routers ───────────────────────────────────────────────────────────
 
@@ -65,6 +64,7 @@ class QueryRequest(BaseModel):
     conversation_id: str | None = None
     focus_id: str | None = None  # UUID of a focus document to scope context
     metabase_url: str | None = None  # Metabase link pasted in chat → auto-focus
+    mb_session_id: str | None = None  # Browser Metabase session for API auth
 
 
 class QueryResponse(BaseModel):
@@ -170,7 +170,8 @@ def _focus_from_metabase_url(url: str):
     )
 
 
-async def _resolve_focus_async(focus_id: str | None, metabase_url: str | None = None):
+async def _resolve_focus_async(focus_id: str | None, metabase_url: str | None = None,
+                               browser_overrides: dict | None = None):
     """Async version: resolves focus, enriching Metabase URLs with live API data."""
     # Priority 1: explicit focus document
     if focus_id:
@@ -181,20 +182,20 @@ async def _resolve_focus_async(focus_id: str | None, metabase_url: str | None = 
             return doc.to_focus_context()
     # Priority 2: Metabase URL → full async enrichment
     if metabase_url:
-        return await _focus_from_metabase_url_async(metabase_url)
+        return await _focus_from_metabase_url_async(metabase_url, browser_overrides)
     return None
 
 
-async def _focus_from_metabase_url_async(url: str):
+async def _focus_from_metabase_url_async(url: str, browser_overrides: dict | None = None):
     """Build a fully-enriched FocusContext from a Metabase URL."""
     from src.raven.focus import parse_metabase_url, FocusContext
     info = parse_metabase_url(url)
     if not info:
         return None
     try:
-        client = _get_metabase_client()
+        client = _get_metabase_client_for_url(info["base_url"], browser_overrides)
     except Exception:
-        # Metabase not configured — return minimal context
+        # Cannot create client — return minimal context
         return FocusContext(
             type=info["type"],
             name=f"Metabase {info['type']} #{info['id']}",
@@ -248,7 +249,8 @@ async def _focus_from_metabase_url_async(url: str):
 async def query(request: QueryRequest, pipeline=Depends(get_pipeline)):
     """Submit a natural language question to the text-to-SQL pipeline."""
     query_id = str(uuid.uuid4())[:8]
-    focus = await _resolve_focus_async(request.focus_id, request.metabase_url)
+    mb_overrides = {"session_id": request.mb_session_id} if request.mb_session_id else None
+    focus = await _resolve_focus_async(request.focus_id, request.metabase_url, mb_overrides)
     question = _clean_question(request.question, focus)
     result = await pipeline.generate(
         question=question,
@@ -288,7 +290,8 @@ async def query_stream(request: QueryRequest, pipeline=Depends(get_pipeline)):
 
     async def run_pipeline():
         try:
-            focus = await _resolve_focus_async(request.focus_id, request.metabase_url)
+            mb_overrides = {"session_id": request.mb_session_id} if request.mb_session_id else None
+            focus = await _resolve_focus_async(request.focus_id, request.metabase_url, mb_overrides)
             question = _clean_question(request.question, focus)
             result = await pipeline.generate(
                 question=question,
@@ -813,7 +816,7 @@ def _get_metabase_config(browser_overrides: dict | None = None) -> dict:
     """
     overrides = browser_overrides or {}
     return {
-        "url": os.environ.get("METABASE_URL", ""),
+        "url": overrides.get("url") or os.environ.get("METABASE_URL", ""),
         "api_key": os.environ.get("METABASE_API_KEY", ""),
         "session_id": overrides.get("session_id") or os.environ.get("METABASE_SESSION_ID", ""),
         "database_id": int(overrides.get("database_id") or os.environ.get("METABASE_DATABASE_ID", "0") or "0"),
@@ -833,9 +836,31 @@ def _get_metabase_client(browser_overrides: dict | None = None):
     )
 
 
+def _get_metabase_client_for_url(base_url: str, browser_overrides: dict | None = None):
+    """Create MetabaseClient from a pasted URL's base + auth from env/browser.
+
+    For read-only operations (preview, focus enrichment) we derive the
+    base URL from the pasted Metabase link rather than requiring METABASE_URL
+    in the environment.  Auth comes from browser session_id or env api_key.
+    """
+    from src.raven.connectors.metabase_client import MetabaseClient
+    overrides = browser_overrides or {}
+    api_key = os.environ.get("METABASE_API_KEY", "") or None
+    session_id = (
+        overrides.get("session_id")
+        or os.environ.get("METABASE_SESSION_ID", "")
+        or None
+    )
+    if not base_url:
+        raise ValueError("No Metabase base URL available")
+    return MetabaseClient(url=base_url, api_key=api_key, session_id=session_id)
+
+
 def _extract_browser_overrides(body: dict) -> dict:
     """Extract browser-sourced Metabase config from request body."""
     out = {}
+    if body.get("_mb_url"):
+        out["url"] = body["_mb_url"]
     if body.get("_mb_session_id"):
         out["session_id"] = body["_mb_session_id"]
     if body.get("_mb_database_id"):
@@ -899,7 +924,12 @@ async def metabase_preview_link(body: dict):
     info = parse_metabase_url(url)
     if not info:
         raise HTTPException(status_code=400, detail="Not a valid Metabase URL")
-    client = _get_metabase_client()
+    overrides = _extract_browser_overrides(body)
+    try:
+        client = _get_metabase_client_for_url(info["base_url"], overrides)
+    except Exception:
+        # Fall back to env-based client if URL-based fails
+        client = _get_metabase_client(overrides)
     if info["type"] == "dashboard":
         meta = await client.get_dashboard_meta(info["id"])
         cards = await client.get_dashboard_cards(info["id"])

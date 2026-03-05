@@ -1,5 +1,6 @@
 import React from 'react';
 import { BarChart3, FileQuestion, X, Loader, ExternalLink, Database, Layout } from 'lucide-react';
+import { getMetabaseBrowserConfig } from './pages/MetabaseSettings';
 
 const API_BASE = process.env.REACT_APP_API_URL || '';
 
@@ -23,10 +24,11 @@ export function detectMetabaseUrl(text) {
  * Fetch preview metadata from backend.
  */
 export async function fetchLinkPreview(url) {
+  const config = getMetabaseBrowserConfig();
   const resp = await fetch(`${API_BASE}/api/metabase/preview-link`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, ...config }),
   });
   if (!resp.ok) return null;
   return resp.json();
