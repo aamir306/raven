@@ -202,10 +202,23 @@ class Pipeline:
             await self._run_stage("router", self._stage_router, ctx)
 
             if ctx.difficulty == Difficulty.AMBIGUOUS:
-                return self._ambiguous_response(ctx)
+                # Fallback: try context retrieval — if schema matches found,
+                # downgrade to SIMPLE and continue instead of rejecting.
+                await self._run_stage("retrieval", self._stage_retrieval, ctx)
+                if ctx.entity_matches or ctx.glossary_matches:
+                    logger.info(
+                        "AMBIGUOUS downgraded to SIMPLE — %d entity + %d glossary matches for '%s'",
+                        len(ctx.entity_matches),
+                        len(ctx.glossary_matches),
+                        ctx.user_question[:60],
+                    )
+                    ctx.difficulty = Difficulty.SIMPLE
+                else:
+                    return self._ambiguous_response(ctx)
 
-            # ── Stage 2: Context Retrieval ─────────────────────────────
-            await self._run_stage("retrieval", self._stage_retrieval, ctx)
+            # ── Stage 2: Context Retrieval (skip if already done in fallback)
+            if not ctx.entity_matches and not ctx.glossary_matches:
+                await self._run_stage("retrieval", self._stage_retrieval, ctx)
 
             # ── Stage 3: Schema Selection ──────────────────────────────
             await self._run_stage("schema_selection", self._stage_schema, ctx)

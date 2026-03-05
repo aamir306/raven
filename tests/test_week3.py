@@ -766,7 +766,7 @@ class TestEvalAccuracy:
     def test_load_test_set(self):
         from tests.eval_accuracy import AccuracyEvaluator
         evaluator = AccuracyEvaluator()
-        assert len(evaluator.test_set) == 100
+        assert len(evaluator.test_set) == 200
 
     def test_extract_tables_from_sql(self):
         from tests.eval_accuracy import AccuracyEvaluator
@@ -800,18 +800,25 @@ class TestEvalAccuracy:
         from tests.eval_accuracy import AccuracyEvaluator
         evaluator = AccuracyEvaluator()
         summary = await evaluator.run(dry_run=True)
-        assert summary.total == 100
+        assert summary.total == 200
         assert summary.composite_score_avg == 100.0
 
     def test_format_report(self):
         from tests.eval_accuracy import EvalSummary, format_report
         summary = EvalSummary(
             total=10,
+            pass_rate=90.0,
+            execution_success_rate=80.0,
             difficulty_accuracy=90.0,
             table_coverage_avg=85.0,
-            pattern_match_rate=70.0,
-            execution_success_rate=80.0,
             composite_score_avg=75.0,
+            latency_avg_s=5.0,
+            latency_p95_s=12.0,
+            total_cost_usd=0.5,
+            simple_pass_rate=85.0,
+            complex_pass_rate=100.0,
+            category_scores={},
+            failures=[],
         )
         report = format_report(summary)
         assert "RAVEN" in report
