@@ -13,11 +13,40 @@ import uuid
 import asyncio
 from pathlib import Path
 
+import re as _re
+
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+# ── URL / question helpers ────────────────────────────────────────────
+
+_URL_RE = _re.compile(r'https?://\S+')
+_META_Q_RE = _re.compile(
+    r'^(what\s+is|describe|show|tell\s+me\s+about|explain|summarize|summarise|info\s+on)'
+    r'\s+(this|the|that)?\s*(dashboard|report|question|link)?\s*[\?\s]*$',
+    _re.IGNORECASE,
+)
+
+
+def _clean_question(question: str, focus=None) -> str:
+    """Strip URLs from a question and, if the remainder is a meta-question
+    about a dashboard, synthesize a concrete data question from focus context."""
+    cleaned = _URL_RE.sub('', question).strip()
+    # If nothing meaningful remains after URL removal, use focus context
+    if not cleaned or _META_Q_RE.match(cleaned) or cleaned in ('?', ''):
+        if focus and getattr(focus, 'tables', None):
+            table_str = ', '.join(focus.tables[:10])
+            name = getattr(focus, 'name', 'this dashboard')
+            cleaned = f"Show summary data from {name} covering tables: {table_str}"
+        elif focus and getattr(focus, 'name', None):
+            cleaned = f"Show data from {focus.name}"
+        else:
+            # Fall back to original (let the router decide)
+            return question
+    return cleaned
 
 # ── Routers ───────────────────────────────────────────────────────────
 
@@ -220,8 +249,9 @@ async def query(request: QueryRequest, pipeline=Depends(get_pipeline)):
     """Submit a natural language question to the text-to-SQL pipeline."""
     query_id = str(uuid.uuid4())[:8]
     focus = await _resolve_focus_async(request.focus_id, request.metabase_url)
+    question = _clean_question(request.question, focus)
     result = await pipeline.generate(
-        question=request.question,
+        question=question,
         conversation_id=request.conversation_id,
         focus=focus,
     )
@@ -259,8 +289,9 @@ async def query_stream(request: QueryRequest, pipeline=Depends(get_pipeline)):
     async def run_pipeline():
         try:
             focus = await _resolve_focus_async(request.focus_id, request.metabase_url)
+            question = _clean_question(request.question, focus)
             result = await pipeline.generate(
-                question=request.question,
+                question=question,
                 conversation_id=request.conversation_id,
                 stage_hook=stage_hook,
                 focus=focus,

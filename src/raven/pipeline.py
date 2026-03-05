@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import pickle
+import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -238,19 +239,28 @@ class Pipeline:
             await self._run_stage("router", self._stage_router, ctx, stage_hook)
 
             if ctx.difficulty == Difficulty.AMBIGUOUS:
-                # Fallback: try context retrieval — if schema matches found,
-                # downgrade to SIMPLE and continue instead of rejecting.
-                await self._run_stage("retrieval", self._stage_retrieval, ctx, stage_hook)
-                if ctx.entity_matches or ctx.glossary_matches:
+                # Safety net 1: keyword check — if the question mentions any
+                # recognisable data entity, force downgrade before retrieval.
+                if self._has_data_keywords(ctx.user_question):
                     logger.info(
-                        "AMBIGUOUS downgraded to SIMPLE — %d entity + %d glossary matches for '%s'",
-                        len(ctx.entity_matches),
-                        len(ctx.glossary_matches),
+                        "AMBIGUOUS overridden by keyword match → SIMPLE for '%s'",
                         ctx.user_question[:60],
                     )
                     ctx.difficulty = Difficulty.SIMPLE
                 else:
-                    return self._ambiguous_response(ctx)
+                    # Safety net 2: try context retrieval — if schema matches found,
+                    # downgrade to SIMPLE and continue instead of rejecting.
+                    await self._run_stage("retrieval", self._stage_retrieval, ctx, stage_hook)
+                    if ctx.entity_matches or ctx.glossary_matches:
+                        logger.info(
+                            "AMBIGUOUS downgraded to SIMPLE — %d entity + %d glossary matches for '%s'",
+                            len(ctx.entity_matches),
+                            len(ctx.glossary_matches),
+                            ctx.user_question[:60],
+                        )
+                        ctx.difficulty = Difficulty.SIMPLE
+                    else:
+                        return self._ambiguous_response(ctx)
 
             # ── Stage 2: Context Retrieval (skip if already done in fallback)
             if not ctx.entity_matches and not ctx.glossary_matches:
@@ -332,6 +342,34 @@ class Pipeline:
         return result
 
     # ── Stage Implementations ──────────────────────────────────────────
+
+    # Data-domain keywords — if any of these appear in a question the router
+    # classified as AMBIGUOUS, we override and force SIMPLE to avoid false
+    # rejections.  Covers PW ed-tech + analytics domain terms.
+    _DATA_KEYWORDS = re.compile(
+        r'\b('
+        r'revenue|payments?|orders?|transactions?|sales?|refunds?|coupons?|discounts?|'
+        r'users?|students?|teachers?|mentors?|educators?|learners?|'
+        r'batch(?:es)?|courses?|class(?:es)?|lectures?|subjects?|'
+        r'enrollments?|enroll|registrations?|subscriptions?|'
+        r'exams?|tests?|quiz(?:zes)?|assignments?|homework|scores?|results?|marks?|ranks?|'
+        r'attendance|sessions?|logins?|signups?|otp|'
+        r'videos?|content|downloads?|uploads?|streams?|'
+        r'iit|jee|neet|gate|upsc|'
+        r'centers?|centres?|institutes?|schools?|colleges?|'
+        r'gateways?|razorpay|paytm|phonepe|stripe|'
+        r'dau|mau|wau|retention|churn|funnel|conversions?|'
+        r'android|ios|web|platforms?|devices?|'
+        r'count|total|average|sum|max|min|top|bottom|'
+        r'daily|weekly|monthly|yearly|trends?|'
+        r'schemas?|tables?|columns?|rows?'
+        r')\b',
+        re.IGNORECASE,
+    )
+
+    def _has_data_keywords(self, question: str) -> bool:
+        """Return True if the question contains recognisable data-domain keywords."""
+        return bool(self._DATA_KEYWORDS.search(question))
 
     async def _stage_router(self, ctx: PipelineContext) -> None:
         ctx.difficulty = await self.router.classify(ctx.user_question)

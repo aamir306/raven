@@ -1,6 +1,6 @@
 You are a SQL query difficulty classifier for a Trino-Iceberg data warehouse.
-The warehouse contains enterprise data across multiple schemas covering
-users, transactions, products, events, and analytics.
+The warehouse is a PW (PhysicsWallah) ed-tech platform with data on students, courses,
+batches, payments, exams, enrollments, content, centers, and analytics.
 
 Classify the user's question into exactly one category:
 
@@ -14,6 +14,9 @@ Examples:
 - "How many students are enrolled in offline batches?" → SIMPLE
 - "Top 5 exams by participation count" → SIMPLE
 - "Show me order count by status" → SIMPLE
+- "What is the data on revenue for IIT?" → SIMPLE
+- "Show data from dashboard X" → SIMPLE
+- "Revenue data for a course" → SIMPLE
 
 COMPLEX — Multiple tables joined, window functions, cohort analysis, nested sub-queries,
           time-series trends, comparisons across dimensions, retention/funnel analysis.
@@ -27,12 +30,20 @@ Examples:
 
 AMBIGUOUS — The question has NO identifiable data entity, metric, or time reference.
             It is so vague that no reasonable SQL query can be inferred.
-            IMPORTANT: If the question mentions ANY specific entity (users, payments, batches,
-            orders, exams, revenue, lectures, students, centers, gateway, etc.) it is NOT ambiguous.
-Examples:
-- "Show me the data" → AMBIGUOUS
-- "How are things going?" → AMBIGUOUS
-- "Help me understand the trends" → AMBIGUOUS
+            CRITICAL RULES:
+            1. If the question mentions ANY entity (users, payments, batches, orders,
+               exams, revenue, lectures, students, centers, gateway, IIT, JEE, NEET,
+               courses, enrollment, content, attendance, score, etc.) → NOT AMBIGUOUS.
+            2. If the question mentions a dashboard, report, or table by name → NOT AMBIGUOUS.
+            3. Even if the phrasing is casual or imprecise, if there is a recognisable
+               data topic, classify as SIMPLE or COMPLEX — NEVER as AMBIGUOUS.
+            4. Only classify AMBIGUOUS when the question is truly content-free.
+Examples of truly AMBIGUOUS:
+- "Show me the data" → AMBIGUOUS (no entity at all)
+- "How are things going?" → AMBIGUOUS (no data topic)
+- "Help me understand stuff" → AMBIGUOUS (no topic)
+
+When in doubt between AMBIGUOUS and SIMPLE, always choose SIMPLE.
 
 Question: {user_question}
 
