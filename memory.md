@@ -1,6 +1,6 @@
 # Text-to-SQL Project — Conversation Memory
 
-## Last Updated: March 6, 2026
+## Last Updated: March 7, 2026
 
 ---
 
@@ -339,8 +339,32 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 
 | Commit | Message |
 |---|---|
+| 5c43753 | Phase 3: async search, caching, multi-turn, feedback, semantic model |
 | c500deb | feat: preprocessing + embedding + bug fixes + E2E 6/6 |
 | 8cf9e84 | Connect to real infrastructure: Azure OpenAI + Trino + pgvector |
 | fd548cf | Phase 2 Week 5: Web service + React UI + Docker + K8s |
 | 120748b | Phase 2 Week 4: Extended test set to 100 questions |
 | 63fbe72 | Phase 1 Weeks 1-3: Core pipeline |
+
+---
+
+## Phase 3 Changes (commit 5c43753)
+
+### New Files
+- **src/raven/cache.py** — QueryCache: in-memory LRU (500 entries, 1hr TTL), SHA256 key normalization
+- **src/raven/conversation.py** — ConversationManager: follow-up detection heuristics + LLM-based question rewriting using query_log history
+
+### Modified Files
+- **src/raven/connectors/pgvector_store.py** — async_search() via asyncio.to_thread, query_log table (CRUD: log_query, update_feedback, get_query, get_conversation_history, get_pending_corrections), indexes on query_id/conversation_id/feedback
+- **src/raven/pipeline.py** — Integrated cache (check→stages→store), conversation resolution for follow-ups, passes openai to FeedbackCollector
+- **src/raven/feedback/collector.py** — Complete rewrite: persists to query_log, auto-embeds thumbs-up pairs into few-shot (question_embeddings), correction workflow
+- **src/raven/retrieval/{fewshot,doc,glossary}_retriever.py** + **src/raven/schema/column_filter.py** — All switched to await pgvector.async_search() for true parallelism
+- **config/semantic_model.yaml** — Real PW CDP model: 6 tables (gold_batches, gold_batch_rooms, gold_orders, gold_dbt_lecture_batch_info, gold_offline_assigned_batch, gold_payments), 11 business rules, 5 verified queries, 4 relationships, 72 synonyms
+- **config/model_routing.yaml** — Added cost_tier annotations (light/heavy) for gpt4o-mini migration; 5 light stages identified (router, conversation_rewrite, ir_keyword_extract, out_chart, out_summary)
+- **preprocessing/build_glossary.py** — Rewritten for new YAML format (synonyms, time_dimensions, metrics, term/sql_fragment, top-level relationships), uses project connectors (OpenAIClient + PgVectorStore)
+
+### Performance Expectations
+- pgvector parallelism: 3 concurrent searches ~5s vs ~15s sequential (3x speedup)
+- Cache hit: ~0s (instant) for repeated questions within 1hr
+- Cost optimization: when gpt4o-mini deployed, light stages save ~78% ($0.28 → ~$0.06/query)
+- Glossary embeddings: 154 entries ready to embed (6 tables, 32 dims, 8 time dims, 15 metrics, 72 synonyms, 12 rules, 5 queries, 4 relationships)
