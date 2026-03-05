@@ -400,6 +400,17 @@ class Pipeline:
             "difficulty": ctx.difficulty.value if ctx.difficulty else "unknown",
             "timings": ctx.stage_timings,
             "cost": ctx.total_cost,
+            # Phase 5: debug info for UI Debug tab
+            "debug": {
+                "selected_tables": ctx.selected_tables,
+                "candidates_count": len(ctx.sql_candidates),
+                "probe_count": len(ctx.probe_evidence),
+                "entity_matches": len(ctx.entity_matches),
+                "glossary_matches": len(ctx.glossary_matches),
+                "similar_queries": len(ctx.similar_queries),
+            },
+            # Phase 5: follow-up suggestions (populated by Stage 8)
+            "suggestions": getattr(ctx, "follow_up_suggestions", []),
         }
 
     def _ambiguous_response(self, ctx: PipelineContext) -> dict:

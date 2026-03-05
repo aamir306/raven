@@ -43,7 +43,7 @@ def extract_glossary_entries(model: dict) -> list[dict]:
     """
     Extract all embeddable entries from semantic model YAML.
 
-    Handles the PW CDP semantic model format:
+    Handles the semantic model format:
       - tables: with synonyms, dimensions, time_dimensions, metrics
       - business_rules: term + definition + sql_fragment + synonyms
       - verified_queries: question + sql + notes

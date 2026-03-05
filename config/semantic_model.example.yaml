@@ -1,0 +1,325 @@
+# Semantic Model — Example Configuration
+# ========================================
+# Snowflake Cortex Analyst-style YAML format.
+# Defines dimensions, metrics, business rules, synonyms, verified queries,
+# and table relationships for the text-to-SQL pipeline.
+#
+# Copy this file to config/semantic_model.yaml and customize for your schema.
+#
+# Used by: GlossaryRetriever (Stage 2.4), ColumnPruner (Stage 3.4),
+#          SQL generators (Stage 5) for business term resolution.
+
+name: my_semantic_model
+version: "1.0.0"
+description: >
+  Semantic model for an enterprise data warehouse.
+  Customize this file to describe your tables, business rules, and relationships.
+
+# ═══════════════════════════════════════════════════════════════════════
+# KEY TABLES — dimensions + metrics for the most-queried tables
+# ═══════════════════════════════════════════════════════════════════════
+
+tables:
+  - name: fact_orders
+    schema: analytics
+    fully_qualified: "catalog.analytics.fact_orders"
+    description: "Fact table for all customer orders"
+    synonyms:
+      - orders
+      - purchases
+      - transactions
+    dimensions:
+      - name: order_id
+        type: VARCHAR
+        description: "Unique order identifier"
+      - name: customer_id
+        type: VARCHAR
+        description: "Customer who placed the order"
+      - name: status
+        type: VARCHAR
+        description: "Order status: pending, completed, cancelled, refunded"
+        enum_values: ["pending", "completed", "cancelled", "refunded"]
+      - name: payment_method
+        type: VARCHAR
+        description: "Payment method used"
+    time_dimensions:
+      - name: created_at
+        type: TIMESTAMP
+        description: "When the order was placed"
+        granularities: [day, week, month, quarter, year]
+    metrics:
+      - name: total_amount
+        type: DOUBLE
+        description: "Order total in base currency"
+        agg: SUM
+      - name: discount_amount
+        type: DOUBLE
+        description: "Discount applied to this order"
+        agg: SUM
+
+  - name: dim_customers
+    schema: analytics
+    fully_qualified: "catalog.analytics.dim_customers"
+    description: "Customer dimension table with profile and segmentation"
+    synonyms:
+      - customers
+      - users
+      - accounts
+    dimensions:
+      - name: customer_id
+        type: VARCHAR
+        description: "Unique customer identifier"
+      - name: name
+        type: VARCHAR
+        description: "Customer full name"
+      - name: email
+        type: VARCHAR
+        description: "Customer email address"
+      - name: segment
+        type: VARCHAR
+        description: "Customer segment: enterprise, mid-market, smb, consumer"
+        enum_values: ["enterprise", "mid-market", "smb", "consumer"]
+      - name: country
+        type: VARCHAR
+        description: "Customer country"
+      - name: acquisition_channel
+        type: VARCHAR
+        description: "How the customer was acquired: organic, paid, referral, partner"
+    time_dimensions:
+      - name: created_at
+        type: TIMESTAMP
+        description: "When the customer account was created"
+        granularities: [day, week, month, quarter, year]
+
+  - name: fact_events
+    schema: analytics
+    fully_qualified: "catalog.analytics.fact_events"
+    description: "Event stream: user interactions, page views, clicks"
+    synonyms:
+      - events
+      - clickstream
+      - user_activity
+    dimensions:
+      - name: event_id
+        type: VARCHAR
+        description: "Unique event identifier"
+      - name: user_id
+        type: VARCHAR
+        description: "User who generated the event"
+      - name: event_name
+        type: VARCHAR
+        description: "Event type name (page_view, button_click, purchase, etc.)"
+      - name: platform
+        type: VARCHAR
+        description: "Platform: web, ios, android"
+        enum_values: ["web", "ios", "android"]
+    time_dimensions:
+      - name: event_timestamp
+        type: TIMESTAMP
+        description: "When the event occurred"
+        granularities: [hour, day, week, month]
+    metrics:
+      - name: event_value
+        type: DOUBLE
+        description: "Monetary value associated with the event (0 if none)"
+        agg: SUM
+
+  - name: dim_products
+    schema: analytics
+    fully_qualified: "catalog.analytics.dim_products"
+    description: "Product catalog dimension table"
+    synonyms:
+      - products
+      - items
+      - catalog
+    dimensions:
+      - name: product_id
+        type: VARCHAR
+        description: "Unique product identifier"
+      - name: name
+        type: VARCHAR
+        description: "Product name"
+      - name: category
+        type: VARCHAR
+        description: "Product category"
+      - name: subcategory
+        type: VARCHAR
+        description: "Product subcategory"
+      - name: price
+        type: DOUBLE
+        description: "Product list price"
+
+  - name: fact_payments
+    schema: analytics
+    fully_qualified: "catalog.analytics.fact_payments"
+    description: "Payment transactions linked to orders"
+    synonyms:
+      - payments
+      - transactions
+      - settlements
+    dimensions:
+      - name: payment_id
+        type: VARCHAR
+        description: "Unique payment identifier"
+      - name: order_id
+        type: VARCHAR
+        description: "Associated order"
+      - name: gateway
+        type: VARCHAR
+        description: "Payment gateway used: stripe, paypal, bank_transfer"
+        enum_values: ["stripe", "paypal", "bank_transfer"]
+      - name: status
+        type: VARCHAR
+        description: "Payment status: success, failed, pending, refunded"
+        enum_values: ["success", "failed", "pending", "refunded"]
+    time_dimensions:
+      - name: paid_at
+        type: TIMESTAMP
+        description: "When the payment was processed"
+        granularities: [day, week, month]
+    metrics:
+      - name: amount
+        type: DOUBLE
+        description: "Payment amount"
+        agg: SUM
+
+# ═══════════════════════════════════════════════════════════════════════
+# BUSINESS RULES — domain-specific term definitions
+# ═══════════════════════════════════════════════════════════════════════
+
+business_rules:
+  - term: "active user"
+    definition: "A user who triggered at least one event in the given time period"
+    sql_fragment: "EXISTS (SELECT 1 FROM catalog.analytics.fact_events fe WHERE fe.user_id = c.customer_id AND fe.event_timestamp >= DATE_ADD('day', -30, CURRENT_DATE))"
+    synonyms: [active, dau, mau, engaged user]
+    category: user_metrics
+
+  - term: "revenue"
+    definition: "Sum of total_amount from completed orders"
+    sql_fragment: "SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END)"
+    synonyms: [sales, income, gmv, gross revenue]
+    category: revenue
+
+  - term: "conversion rate"
+    definition: "Ratio of users who completed a purchase to total users who visited"
+    sql_fragment: "CAST(COUNT(DISTINCT CASE WHEN event_name = 'purchase' THEN user_id END) AS DOUBLE) / NULLIF(COUNT(DISTINCT user_id), 0)"
+    synonyms: [cvr, purchase rate, conversion]
+    category: funnel
+
+  - term: "churn"
+    definition: "Customer who was active in the previous period but not in the current period"
+    sql_fragment: "-- Requires cohort CTE: active in period N-1 but absent in period N"
+    synonyms: [churned, attrition, lost customer]
+    category: retention
+
+  - term: "ARPU"
+    definition: "Average Revenue Per User = total revenue / distinct paying users"
+    sql_fragment: "SUM(total_amount) / NULLIF(COUNT(DISTINCT customer_id), 0)"
+    synonyms: [average revenue per user, revenue per user]
+    category: revenue
+
+  - term: "new customer"
+    definition: "Customer whose first order was placed in the given time period"
+    sql_fragment: "WHERE customer_id IN (SELECT customer_id FROM catalog.analytics.fact_orders GROUP BY 1 HAVING MIN(created_at) >= {start_date})"
+    synonyms: [new user, first-time buyer, acquisition]
+    category: user_metrics
+
+# ═══════════════════════════════════════════════════════════════════════
+# VERIFIED QUERIES — trusted question→SQL pairs for few-shot learning
+# ═══════════════════════════════════════════════════════════════════════
+
+verified_queries:
+  - question: "How many orders were placed last month?"
+    sql: |
+      SELECT COUNT(*) AS order_count
+      FROM catalog.analytics.fact_orders
+      WHERE created_at >= DATE_TRUNC('month', DATE_ADD('month', -1, CURRENT_DATE))
+        AND created_at < DATE_TRUNC('month', CURRENT_DATE)
+    notes: "Uses DATE_TRUNC for clean month boundaries"
+    use_as_onboarding: true
+    category: revenue
+
+  - question: "What is the daily revenue trend for the past 30 days?"
+    sql: |
+      SELECT DATE_TRUNC('day', created_at) AS day,
+             SUM(total_amount) AS daily_revenue
+      FROM catalog.analytics.fact_orders
+      WHERE status = 'completed'
+        AND created_at >= DATE_ADD('day', -30, CURRENT_DATE)
+      GROUP BY 1
+      ORDER BY 1
+    notes: "Filters to completed orders only for accurate revenue"
+    use_as_onboarding: true
+    category: revenue
+
+  - question: "Top 10 customers by total spend"
+    sql: |
+      SELECT c.name AS customer_name,
+             c.segment,
+             SUM(o.total_amount) AS total_spend,
+             COUNT(o.order_id) AS order_count
+      FROM catalog.analytics.fact_orders o
+      JOIN catalog.analytics.dim_customers c ON o.customer_id = c.customer_id
+      WHERE o.status = 'completed'
+      GROUP BY 1, 2
+      ORDER BY total_spend DESC
+      LIMIT 10
+    notes: "Joins orders with customers for names and segments"
+    use_as_onboarding: true
+    category: user_metrics
+
+  - question: "Monthly conversion rate by platform"
+    sql: |
+      SELECT DATE_TRUNC('month', event_timestamp) AS month,
+             platform,
+             CAST(COUNT(DISTINCT CASE WHEN event_name = 'purchase' THEN user_id END) AS DOUBLE)
+               / NULLIF(COUNT(DISTINCT user_id), 0) AS conversion_rate
+      FROM catalog.analytics.fact_events
+      WHERE event_timestamp >= DATE_ADD('month', -6, CURRENT_DATE)
+      GROUP BY 1, 2
+      ORDER BY 1, 2
+    notes: "6-month window, by platform for comparison"
+    use_as_onboarding: true
+    category: funnel
+
+  - question: "Payment success rate by gateway"
+    sql: |
+      SELECT gateway,
+             COUNT(*) AS total_payments,
+             SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful,
+             ROUND(
+               CAST(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS DOUBLE)
+               / NULLIF(COUNT(*), 0) * 100, 2
+             ) AS success_rate_pct
+      FROM catalog.analytics.fact_payments
+      WHERE paid_at >= DATE_ADD('day', -30, CURRENT_DATE)
+      GROUP BY 1
+      ORDER BY total_payments DESC
+    notes: "30-day window for recent gateway performance"
+    use_as_onboarding: true
+    category: revenue
+
+# ═══════════════════════════════════════════════════════════════════════
+# RELATIONSHIPS — join paths between tables
+# ═══════════════════════════════════════════════════════════════════════
+
+relationships:
+  - from_table: fact_orders
+    to_table: dim_customers
+    join_key: "fact_orders.customer_id = dim_customers.customer_id"
+    cardinality: "many-to-one"
+
+  - from_table: fact_orders
+    to_table: dim_products
+    join_key: "fact_orders.product_id = dim_products.product_id"
+    cardinality: "many-to-one"
+
+  - from_table: fact_payments
+    to_table: fact_orders
+    join_key: "fact_payments.order_id = fact_orders.order_id"
+    cardinality: "many-to-one"
+
+  - from_table: fact_events
+    to_table: dim_customers
+    join_key: "fact_events.user_id = dim_customers.customer_id"
+    cardinality: "many-to-one"

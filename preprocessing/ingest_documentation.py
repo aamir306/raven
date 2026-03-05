@@ -15,12 +15,14 @@ Max chunk size: ~1000 tokens.
 
 Output: pgvector doc_embeddings table + data/doc_chunks.json (file fallback)
 
+Uses project connectors (OpenAIClient for text-embedding-3-large via Azure,
+PgVectorStore for doc_embeddings with 3072-dim vectors).
+
 Usage:
-    python -m preprocessing.ingest_documentation \
+    PYTHONPATH=. python preprocessing/ingest_documentation.py \
         --docs-dir docs/ \
         --annotations config/table_annotations.yaml \
-        --pgvector-dsn postgresql://raven:raven@localhost:5432/raven \
-        --output data/doc_chunks.json
+        --output data/doc_chunks.json [--embed]
 """
 
 from __future__ import annotations
@@ -420,72 +422,70 @@ def ingest_all(
 # ── Embedding & Storage ───────────────────────────────────────────────
 
 
-async def embed_and_store(
+def embed_and_store(
     chunks: list[dict],
-    pgvector_dsn: str,
-    openai_api_key: str | None = None,
-    batch_size: int = 100,
+    batch_size: int = 50,
 ) -> int:
-    """Embed doc chunks and upsert into pgvector."""
-    import openai
-    import asyncpg
+    """Embed doc chunks and upsert into pgvector using project connectors.
 
-    client = openai.AsyncOpenAI(api_key=openai_api_key)
+    Uses OpenAIClient (Azure text-embedding-3-large, 3072-dim) and
+    PgVectorStore (doc_embeddings table with vector(3072)).
+    """
+    import asyncio
+    import os
 
-    conn = await asyncpg.connect(pgvector_dsn)
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    # ── lazy imports of project connectors ──
+    from src.raven.connectors.openai_client import OpenAIClient
+    from src.raven.connectors.pgvector_store import PgVectorStore
+
+    openai = OpenAIClient()
+    pgvector = PgVectorStore(
+        host=os.getenv("PGVECTOR_HOST", "localhost"),
+        port=int(os.getenv("PGVECTOR_PORT", "5433")),
+        dbname=os.getenv("PGVECTOR_DB", "raven"),
+        user=os.getenv("PGVECTOR_USER", "raven"),
+        password=os.getenv("PGVECTOR_PASSWORD", "changeme"),
+    )
+    pgvector.init_tables()
+
+    # Delete existing doc_embeddings to do a clean reload
+    conn = pgvector._pool.getconn()
     try:
-        await conn.execute("""
-            CREATE EXTENSION IF NOT EXISTS vector;
-            CREATE TABLE IF NOT EXISTS doc_embeddings (
-                id SERIAL PRIMARY KEY,
-                source VARCHAR(500) NOT NULL,
-                section VARCHAR(500),
-                text TEXT NOT NULL,
-                embedding vector(1536),
-                metadata JSONB DEFAULT '{}',
-                text_hash VARCHAR(16) UNIQUE,
-                created_at TIMESTAMP DEFAULT NOW()
-            );
-            CREATE INDEX IF NOT EXISTS idx_doc_embedding
-                ON doc_embeddings USING ivfflat (embedding vector_cosine_ops)
-                WITH (lists = 50);
-        """)
-
-        stored = 0
-        for i in range(0, len(chunks), batch_size):
-            batch = chunks[i : i + batch_size]
-            texts = [c["text"] for c in batch]
-
-            resp = await client.embeddings.create(
-                model="text-embedding-3-small",
-                input=texts,
-            )
-            embeddings = [item.embedding for item in resp.data]
-
-            for chunk, emb in zip(batch, embeddings):
-                await conn.execute(
-                    """
-                    INSERT INTO doc_embeddings (source, section, text, embedding, metadata, text_hash)
-                    VALUES ($1, $2, $3, $4::vector, $5, $6)
-                    ON CONFLICT (text_hash) DO UPDATE SET
-                        embedding = EXCLUDED.embedding,
-                        metadata = EXCLUDED.metadata,
-                        created_at = NOW()
-                    """,
-                    chunk["source"],
-                    chunk.get("section", ""),
-                    chunk["text"],
-                    str(emb),
-                    json.dumps(chunk.get("metadata", {})),
-                    chunk["hash"],
-                )
-                stored += 1
-
-            logger.info("Embedded doc batch %d-%d / %d", i, i + len(batch), len(chunks))
-
-        return stored
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM doc_embeddings;")
+        conn.commit()
+        logger.info("Cleared existing doc_embeddings")
     finally:
-        await conn.close()
+        pgvector._pool.putconn(conn)
+
+    stored = 0
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i : i + batch_size]
+        texts = [c["text"] for c in batch]
+
+        # Use project's async embed (text-embedding-3-large via Azure OpenAI)
+        embeddings = asyncio.run(openai.batch_embed(texts))
+
+        for chunk, emb in zip(batch, embeddings):
+            pgvector.insert(
+                table="doc_embeddings",
+                text="",  # not used — extra cols carry the data
+                embedding=emb,
+                metadata=chunk.get("metadata", {}),
+                source_file=chunk["source"],
+                table_ref=chunk.get("section", ""),
+                content=chunk["text"],
+                doc_type=chunk.get("metadata", {}).get("file_type", "unknown"),
+            )
+            stored += 1
+
+        logger.info("Embedded doc batch %d-%d / %d", i, i + len(batch), len(chunks))
+
+    logger.info("Stored %d doc embeddings (3072-dim) in pgvector", stored)
+    return stored
 
 
 # ── File Fallback ─────────────────────────────────────────────────────
@@ -506,8 +506,8 @@ def main():
     parser = argparse.ArgumentParser(description="Ingest documentation for RAVEN")
     parser.add_argument("--docs-dir", default="docs/")
     parser.add_argument("--annotations", default="config/table_annotations.yaml")
-    parser.add_argument("--pgvector-dsn", help="PostgreSQL DSN (optional)")
     parser.add_argument("--output", default="data/doc_chunks.json")
+    parser.add_argument("--embed", action="store_true", help="Embed and store in pgvector")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -523,21 +523,12 @@ def main():
     # Always save to file
     save_chunks(chunks, Path(args.output))
 
-    # Optionally embed and store
-    if args.pgvector_dsn:
-        import asyncio
-        import os
-
-        stored = asyncio.run(
-            embed_and_store(
-                chunks,
-                pgvector_dsn=args.pgvector_dsn,
-                openai_api_key=os.getenv("OPENAI_API_KEY"),
-            )
-        )
+    # Embed and store in pgvector using project connectors
+    if args.embed:
+        stored = embed_and_store(chunks)
         logger.info("Stored %d embeddings in pgvector", stored)
     else:
-        logger.info("No pgvector DSN — skipped embedding.")
+        logger.info("No --embed flag -- skipped embedding. Use --embed to store in pgvector.")
 
     logger.info("Documentation ingestion complete!")
 

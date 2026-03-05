@@ -46,6 +46,11 @@ class QueryResponse(BaseModel):
     cost: float = 0.0
     message: str = ""
     error: str = ""
+    suggestions: list[str] = []
+    debug: dict = {}
+    cached: bool = False
+    is_followup: bool = False
+    original_question: str = ""
 
 
 class FeedbackRequest(BaseModel):
@@ -116,6 +121,30 @@ async def feedback(request: FeedbackRequest, pipeline=Depends(get_pipeline)):
         correction_notes=request.correction_notes,
     )
     return FeedbackResponse(**result)
+
+
+@query_router.get("/suggestions")
+async def suggestions():
+    """Return onboarding question suggestions from semantic model."""
+    import yaml
+    try:
+        model_path = Path("config/semantic_model.yaml")
+        if not model_path.exists():
+            model_path = Path("config/semantic_model.example.yaml")
+        with open(model_path) as f:
+            model = yaml.safe_load(f)
+
+        items = []
+        for vq in model.get("verified_queries", []):
+            if vq.get("use_as_onboarding"):
+                items.append({
+                    "question": vq["question"],
+                    "category": vq.get("category", "general"),
+                })
+        return {"suggestions": items[:8]}
+    except Exception as e:
+        logger.warning("Failed to load suggestions: %s", e)
+        return {"suggestions": []}
 
 
 # ── Metrics Routes ────────────────────────────────────────────────────

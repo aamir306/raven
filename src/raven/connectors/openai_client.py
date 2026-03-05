@@ -6,7 +6,7 @@ Features:
 - Automatic model selection per pipeline stage via config/model_routing.yaml
 - Retry with exponential backoff on rate-limit and timeout errors
 - Per-call cost tracking (input/output tokens × pricing)
-- Embedding support (text-embedding-3-small, 1536-dim)
+- Embedding support (text-embedding-3-large via Azure 'embedlarge' deployment, 3072-dim)
 - Async-first (uses openai.AsyncAzureOpenAI or openai.AsyncOpenAI)
 """
 
@@ -269,7 +269,7 @@ class OpenAIClient:
     # ------------------------------------------------------------------ #
 
     async def embed(self, text: str) -> list[float]:
-        """Embed a single text string using text-embedding-3-small."""
+        """Embed a single text string using the configured embedding model."""
         result = await self.batch_embed([text])
         return result[0]
 

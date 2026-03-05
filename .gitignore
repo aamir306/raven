@@ -66,3 +66,17 @@ coverage.xml
 
 # mypy
 .mypy_cache/
+
+# Private / deployment-specific files (never push to public repo)
+memory.md
+INSTRUCTIONS.md
+PLAN.md
+SKILL.md
+injection/
+docs/training.doc
+tests/test_set_200.json
+tests/eval_accuracy.py
+tests/eval_ab_candidates.py
+config/semantic_model.yaml
+web/ui/node_modules/
+web/ui/package-lock.json

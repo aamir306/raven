@@ -55,10 +55,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/aamirpw306/raven"
-Repository = "https://github.com/aamirpw306/raven"
-Documentation = "https://github.com/aamirpw306/raven/tree/main/docs"
-Issues = "https://github.com/aamirpw306/raven/issues"
+Homepage = "https://github.com/aamir306/raven"
+Repository = "https://github.com/aamir306/raven"
+Documentation = "https://github.com/aamir306/raven/tree/main/docs"
+Issues = "https://github.com/aamir306/raven/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

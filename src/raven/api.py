@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
     pgvector = PgVectorStore(
         host=os.getenv("PGVECTOR_HOST", "localhost"),
         port=int(os.getenv("PGVECTOR_PORT", "5432")),
-        dbname=os.getenv("PGVECTOR_DB", "antondb"),
+        dbname=os.getenv("PGVECTOR_DB", "raven"),
         user=os.getenv("PGVECTOR_USER", "postgres"),
         password=os.getenv("PGVECTOR_PASSWORD", "changeme"),
     )
