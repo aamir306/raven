@@ -348,7 +348,7 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 | Phase 1 (Weeks 1-3) | ✅ Complete | 63fbe72 |
 | Phase 2 (Weeks 4-5) | ✅ Complete | fd548cf |
 | Phase 3 (Weeks 6-8) | ✅ Complete | 152f3f8 |
-| Phase 5 (Weeks 13-16) | ✅ Complete | b43c4f7 |
+| Phase 5 (Weeks 13-16) | ✅ Complete | b43c4f7, 17129cc |
 | Phase 6 (Weeks 17-20) | 🟡 Tooling done, data population pending | 0600663 |
 | Phase 4 (Weeks 9-12) | ⬜ Not started | — |
 
@@ -373,6 +373,7 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 
 | Commit | Message |
 |---|---|
+| 17129cc | Phase 5.1: Multi-turn sessions, help modal, search, loading progress |
 | 0600663 | Phase 6: Prometheus metrics, data quality tooling, Grafana dashboard |
 | b43c4f7 | Phase 5: Full UI redesign + open-source sanitization |
 | 152f3f8 | Phase 3: semantic model 57 rules, gen_complex, model routing fallback, did-you-mean, confidence calibration |
@@ -435,6 +436,12 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 
 - Complete UI redesign with antd, Monaco Editor, Plotly, lucide-react, react-flow
 - Sanitized all company-specific references from tracked files for open-source
+
+## Phase 5.1 Changes (commit 17129cc)
+
+- **web/ui/src/App.js** — Multi-turn conversation_id wiring to backend, session message persistence (localStorage save/load/delete/switch), "What can I ask?" help modal, session history search filter, 8-stage loading progress animation, session delete, version bumped to v0.4
+- **web/ui/src/App.css** — Sidebar search styles, session flex layout with delete button, loading progress bar (3px bar with stage text), help modal overlay/styles, enhanced mobile-responsive CSS (tab wrapping, data table scroll, SQL read-only on mobile, candidate grid stack)
+- **web/routes/__init__.py** — Added `verified: bool = False` to QueryResponse model (UI badge was already checking this field)
 
 ---
 
