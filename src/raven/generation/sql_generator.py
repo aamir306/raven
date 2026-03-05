@@ -41,6 +41,7 @@ class SQLGenerator:
         self._gen_dc = (PROMPTS_DIR / "gen_divide_conquer.txt").read_text()
         self._gen_ep = (PROMPTS_DIR / "gen_execution_plan.txt").read_text()
         self._gen_fs = (PROMPTS_DIR / "gen_fewshot.txt").read_text()
+        self._gen_complex = (PROMPTS_DIR / "gen_complex.txt").read_text()
         self._gen_revision = (PROMPTS_DIR / "gen_revision.txt").read_text()
         self._dialect_rules = (PROMPTS_DIR / "trino_dialect_rules.txt").read_text()
 
@@ -76,8 +77,11 @@ class SQLGenerator:
             candidates = [sql] if sql else []
         else:
             # 3 diverse candidates — parallel
+            # A: Complex structured prompt (decompose → plan → write → verify)
+            # B: Execution plan chain-of-thought
+            # C: Few-shot pattern follower
             tasks = [
-                self._generate_candidate("divide_conquer", question, context, "gen_candidate_a"),
+                self._generate_candidate("complex", question, context, "gen_candidate_a"),
                 self._generate_candidate("execution_plan", question, context, "gen_candidate_b"),
                 self._generate_candidate("fewshot", question, context, "gen_candidate_c"),
             ]
@@ -107,7 +111,9 @@ class SQLGenerator:
         stage_name: str,
     ) -> str:
         """Generate a single SQL candidate using the specified strategy."""
-        if strategy == "divide_conquer":
+        if strategy == "complex":
+            template = self._gen_complex
+        elif strategy == "divide_conquer":
             template = self._gen_dc
         elif strategy == "execution_plan":
             template = self._gen_ep

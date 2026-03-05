@@ -201,11 +201,416 @@ tables:
         description: Number of successful payments
         sql: "COUNT(*) FILTER (WHERE paid = true)"
 
+  # ── Additional Tables (Phase 3 expansion) ───────────────────────────
+
+  - name: cdp.cdp_revenue.gold_batch_plans
+    description: >
+      Pricing plans for batches. Each batch can have multiple plans
+      with different durations, prices, and discounts.
+    synonyms: [batch plan, pricing plan, subscription plan, course plan]
+    dimensions:
+      - name: _id
+        description: Plan unique ID
+      - name: batchid
+        description: Parent batch FK
+      - name: title
+        description: Plan name/title
+      - name: status
+        description: Plan status (active/inactive)
+        values: [active, inactive]
+      - name: durationtype
+        description: Duration unit (DAYS, MONTHS, YEARS)
+        values: [DAYS, MONTHS, YEARS]
+      - name: isrecommended
+        description: Whether this is the recommended plan (boolean)
+    time_dimensions:
+      - name: createdat
+        description: Plan creation timestamp
+    metrics:
+      - name: plan_price
+        description: Plan price
+        sql: "price"
+      - name: plan_duration
+        description: Plan duration in days/months
+        sql: "duration"
+      - name: plan_discount
+        description: Discount on plan price
+        sql: "discount"
+
+  - name: cdp.offline.gold_dbt_offline_students_details
+    description: >
+      Master table for offline students with demographic and enrollment
+      details. Key table for all offline student analytics.
+    synonyms: [offline students, offline student list, center students]
+    dimensions:
+      - name: student_id
+        description: Unique student ID
+      - name: regno
+        description: Registration number (unique per student)
+      - name: student_name
+        description: Student full name
+      - name: batch
+        description: Batch name
+      - name: batch_id
+        description: Batch FK
+      - name: newscheme
+        description: Fee scheme name
+      - name: acad_year
+        description: Academic year (e.g., 2024-25)
+      - name: phase
+        description: Enrollment phase
+      - name: enrolled_years
+        description: Number of years enrolled
+      - name: class_course
+        description: Class/course combination (e.g., 11th-JEE)
+      - name: center
+        description: Center name
+      - name: combined_center
+        description: Combined center grouping
+      - name: region
+        description: Geographic region
+      - name: vertical
+        description: Business vertical (NEET/JEE etc.)
+      - name: program
+        description: Academic program
+    time_dimensions:
+      - name: reg_from_date
+        description: Registration date
+      - name: batch_start_date
+        description: Batch start date
+      - name: joining_date
+        description: Student joining date
+    metrics:
+      - name: offline_student_count
+        description: Count of offline students
+        sql: "COUNT(DISTINCT student_id)"
+      - name: unique_registration_count
+        description: Count of unique registrations
+        sql: "COUNT(DISTINCT regno)"
+
+  - name: cdp.offline.gold_offline_centers_data
+    description: >
+      Master table of offline physical centers (branches).
+      Contains address, contact, location details.
+    synonyms: [centers, branches, locations, campuses, offline centers]
+    dimensions:
+      - name: branch_id
+        description: Unique center/branch ID
+      - name: branch_name
+        description: Center name
+      - name: is_active
+        description: Whether center is currently active
+      - name: city
+        description: City where center is located
+      - name: state
+        description: State
+      - name: division
+        description: Division grouping
+      - name: center_code
+        description: Short code for center
+      - name: address
+        description: Full address
+    time_dimensions:
+      - name: created_date
+        description: Center creation date
+    metrics:
+      - name: center_count
+        description: Count of centers
+        sql: "COUNT(DISTINCT branch_id)"
+      - name: active_center_count
+        description: Count of active centers
+        sql: "COUNT(DISTINCT branch_id) FILTER (WHERE is_active = true)"
+
+  - name: cdp.offline.gold_dbt_offline_fees_details
+    description: >
+      Offline fee details per student. Tracks scheme amount, concessions,
+      net payable, fees paid, and outstanding balance.
+    synonyms: [offline fees, fee details, fee collection, tuition fees]
+    dimensions:
+      - name: regno
+        description: Student registration number
+      - name: student_id
+        description: Student FK
+      - name: newscheme
+        description: Fee scheme name
+      - name: center_g20
+        description: Center (G20 grouping)
+      - name: acad_year
+        description: Academic year
+      - name: phase
+        description: Enrollment phase
+      - name: enrolled_years
+        description: Number of years enrolled
+      - name: class_course
+        description: Class/course combination
+    metrics:
+      - name: scheme_amount
+        description: Gross scheme amount without GST
+        sql: "SUM(scheme_amount_w_o_gst)"
+      - name: concession_total
+        description: Total concession amount
+        sql: "SUM(concession)"
+      - name: net_amount
+        description: Net amount without GST
+        sql: "SUM(net_amount_w_o_gst)"
+      - name: total_fees_paid
+        description: Total fees collected
+        sql: "SUM(fees_paid)"
+      - name: outstanding
+        description: Outstanding balance
+        sql: "SUM(total_payable_with_gst - fees_paid)"
+
+  - name: cdp.offline.gold_dbt_offline_attendance_ay25_26
+    description: >
+      Offline student attendance for AY 2025-26. Tracks RFID-based
+      attendance by registration number across centers and batches.
+    synonyms: [attendance, student attendance, offline attendance]
+    dimensions:
+      - name: reg_no
+        description: Student registration number
+      - name: student_name
+        description: Student name
+      - name: center
+        description: Center name
+      - name: combined_center
+        description: Combined center grouping
+      - name: region
+        description: Geographic region
+      - name: vertical
+        description: Business vertical
+      - name: program
+        description: Academic program
+      - name: student_type
+        description: Type of student
+      - name: batch
+        description: Batch name
+      - name: rfid_status
+        description: RFID card status
+      - name: newscheme
+        description: Fee scheme
+    time_dimensions:
+      - name: joining_date
+        description: Student joining date
+      - name: batch_allotment_date
+        description: Date batch was allotted
+
+  - name: cdp.offline.gold_dbt_offline_enquiry_conversion
+    description: >
+      Enquiry-to-enrollment funnel data. Tracks enquiries and their
+      conversion to actual enrollments.
+    synonyms: [enquiry, leads, funnel, enquiry conversion, lead conversion]
+    dimensions:
+      - name: enquiry_number
+        description: Unique enquiry identifier
+      - name: mobile_no
+        description: Enquiry phone number
+      - name: course
+        description: Course of interest
+      - name: program
+        description: Program of interest
+      - name: class
+        description: Class level
+      - name: stream
+        description: Academic stream
+      - name: center_name
+        description: Center name
+      - name: combined_center
+        description: Combined center grouping
+      - name: region
+        description: Geographic region
+      - name: disposition
+        description: Enquiry disposition/outcome
+      - name: regno
+        description: Registration number (non-null if converted)
+    time_dimensions:
+      - name: enquiry_date
+        description: Date of enquiry
+      - name: joining_date
+        description: Date of enrollment (null if not converted)
+    metrics:
+      - name: total_enquiries
+        description: Total number of enquiries
+        sql: "COUNT(DISTINCT enquiry_number)"
+      - name: converted_enquiries
+        description: Enquiries that converted to enrollment
+        sql: "COUNT(DISTINCT CASE WHEN regno IS NOT NULL THEN enquiry_number END)"
+      - name: conversion_rate
+        description: Enquiry-to-enrollment conversion rate
+        sql: "ROUND(COUNT(DISTINCT CASE WHEN regno IS NOT NULL THEN enquiry_number END) * 100.0 / NULLIF(COUNT(DISTINCT enquiry_number), 0), 2)"
+
+  - name: cdp.cdp_revenue.gold_subjects
+    description: >
+      Academic subjects with chapter/topic counts.
+    synonyms: [subjects, courses, disciplines]
+    dimensions:
+      - name: _id
+        description: Subject unique ID
+      - name: name
+        description: Subject name (Physics, Chemistry, etc.)
+      - name: programid
+        description: Parent program FK
+      - name: status
+        description: Subject status
+    metrics:
+      - name: total_chapters
+        description: Number of chapters in subject
+        sql: "totalchapters"
+      - name: total_topics
+        description: Number of topics
+        sql: "totaltopics"
+      - name: total_exercises
+        description: Number of exercises
+        sql: "totalexercises"
+
+  - name: cdp.cdp_revenue.gold_coupons
+    description: >
+      Discount coupons and promotional offers. Tracks coupon codes,
+      types, usage, and validity periods.
+    synonyms: [coupons, promo codes, offers, discount codes]
+    dimensions:
+      - name: _id
+        description: Coupon unique ID
+      - name: couponcode
+        description: Coupon code string
+      - name: type
+        description: Coupon type
+      - name: offertype
+        description: Offer classification
+      - name: status
+        description: Coupon status (active/inactive)
+      - name: name
+        description: Coupon name
+    time_dimensions:
+      - name: startdate
+        description: Coupon validity start
+      - name: enddate
+        description: Coupon validity end
+    metrics:
+      - name: coupon_usage
+        description: Number of times coupon was used
+        sql: "SUM(currentusage)"
+      - name: max_discount
+        description: Maximum discount amount
+        sql: "MAX(maxdiscountamount)"
+
+  - name: cdp.cdp_revenue.gold_student_fee_mappings
+    description: >
+      Online per-installment payment records. Tracks each payment
+      installment for a student-batch combination.
+    synonyms: [fee mapping, installment, EMI, payment schedule]
+    dimensions:
+      - name: _id
+        description: Record unique ID
+      - name: userid
+        description: Student user ID
+      - name: batchid
+        description: Batch FK
+      - name: installmentnumber
+        description: Installment sequence number
+      - name: status
+        description: Payment status
+      - name: paymenttype
+        description: Payment type/method
+    time_dimensions:
+      - name: submissiondate
+        description: Payment submission date
+    metrics:
+      - name: installment_amount
+        description: Amount per installment
+        sql: "SUM(amount)"
+      - name: installment_discount
+        description: Discount per installment
+        sql: "SUM(discount)"
+
+  - name: cdp.lms.gold_courses
+    description: >
+      LMS course catalog. Contains course metadata, pricing, and
+      category information.
+    synonyms: [LMS courses, online courses, course catalog]
+    dimensions:
+      - name: _id
+        description: Course unique ID
+      - name: title
+        description: Course title
+      - name: platformtype
+        description: Platform type
+      - name: mode
+        description: Course mode (online/offline/hybrid)
+      - name: categoryid
+        description: Course category FK
+      - name: active
+        description: Whether course is active (boolean)
+      - name: accesstype
+        description: Access type (free/paid)
+    time_dimensions:
+      - name: createdat
+        description: Course creation date
+      - name: updatedat
+        description: Last update date
+    metrics:
+      - name: course_count
+        description: Number of courses
+        sql: "COUNT(DISTINCT _id)"
+
+  - name: cdp.lms.gold_coursesubmissions
+    description: >
+      Student course/lesson completion records. Each row represents
+      a student completing a lesson within a course.
+    synonyms: [submissions, completions, lesson progress, course progress]
+    dimensions:
+      - name: _id
+        description: Submission unique ID
+      - name: userid
+        description: Student user ID
+      - name: courseid
+        description: Course FK
+      - name: lessonid
+        description: Lesson FK
+      - name: lessontype
+        description: Type of lesson (video, quiz, assignment)
+    time_dimensions:
+      - name: createdat
+        description: Submission timestamp
+    metrics:
+      - name: submission_count
+        description: Number of submissions/completions
+        sql: "COUNT(*)"
+      - name: unique_students_completed
+        description: Unique students who completed content
+        sql: "COUNT(DISTINCT userid)"
+
+  - name: cdp.cdp_revenue.gold_test_categories
+    description: >
+      Test/assessment category definitions. Contains test types,
+      pricing, and counts.
+    synonyms: [test categories, assessment types, exam types]
+    dimensions:
+      - name: _id
+        description: Category unique ID
+      - name: name
+        description: Test category name
+      - name: programid
+        description: Program FK
+      - name: status
+        description: Category status
+    time_dimensions:
+      - name: createdat
+        description: Category creation date
+    metrics:
+      - name: total_tests_in_category
+        description: Number of tests in this category
+        sql: "SUM(totaltests)"
+
 # ═══════════════════════════════════════════════════════════════════════
 # BUSINESS RULES — term definitions, SQL fragments, synonyms
+# Covers: revenue, batch, analytics, time_series, enrollment, exam,
+#         funnel, payment, student, comparison, faculty, offline,
+#         content, center, lecture  (all 15 test categories)
 # ═══════════════════════════════════════════════════════════════════════
 
 business_rules:
+
+  # ── Core: Batches & Enrollment ──────────────────────────────────────
 
   - term: active_batch
     definition: >
@@ -213,14 +618,16 @@ business_rules:
       should be excluded unless explicitly requested.
     sql_fragment: "status = 'active'"
     synonyms: [current batch, live batch, running batch]
+    category: [batch, enrollment]
 
-  - term: revenue
+  - term: batch_type
     definition: >
-      Total revenue = SUM(price) from gold_orders. The 'price' column
-      represents the net amount paid after all discounts. Do NOT use
-      'wallet', 'cashback', 'discount' columns — those are breakdowns.
-    sql_fragment: "SUM(price)"
-    synonyms: [income, sales, earnings, total sales, money collected]
+      Online (byju's style streaming) vs offline (physical center).
+      Online batches are in gold_batches, offline in gold_offline_batch_data.
+      The 'batchtype' or 'mode' column distinguishes them.
+    sql_fragment: ""
+    synonyms: [course mode, online, offline, hybrid]
+    category: [batch]
 
   - term: student_count
     definition: >
@@ -228,60 +635,45 @@ business_rules:
       from gold_batch_rooms. For offline: COUNT(DISTINCT student_id)
       from gold_offline_assigned_batch WHERE is_active = true.
     sql_fragment: "SUM(usercount)"
-    synonyms: [enrollment, students enrolled, learners, users]
-
-  - term: faculty
-    definition: >
-      Teachers/instructors who conduct lectures. Faculty information
-      is typically found in lecture-related tables. Not stored in a
-      separate faculty master table in the current schema.
-    sql_fragment: ""
-    synonyms: [teacher, instructor, educator, professor, tutor]
-
-  - term: lecture
-    definition: >
-      A single class session or teaching event. Lectures are associated
-      with batches and faculty. Use gold_dbt_lecture_batch_info for
-      lecture analytics.
-    sql_fragment: ""
-    synonyms: [class, session, teaching session, video lecture]
-
-  - term: exam_category
-    definition: >
-      The target competitive exam. Main categories: NEET (medical),
-      JEE/IIT-JEE (engineering), UPSC (civil services), SSC (staff
-      selection), Banking, GATE, CUET, and state-specific exams.
-    sql_fragment: ""
-    synonyms: [exam, test, competition, entrance exam]
-
-  - term: cohort
-    definition: >
-      A group of students segmented by a specific attribute, typically
-      their enrollment period or exam target year (e.g., "NEET 2025 cohort").
-    sql_fragment: ""
-    synonyms: [batch year, enrollment group, student group]
-
-  - term: offline_center
-    definition: >
-      Physical classroom locations where offline coaching happens.
-      Tracked in gold_offline_centers_data_tmp. Each center is a
-      branch with branch_id.
-    sql_fragment: ""
-    synonyms: [center, branch, campus, classroom, physical center]
+    synonyms: [enrollment, students enrolled, learners, users, headcount]
+    category: [enrollment, student]
 
   - term: fill_rate
     definition: >
       Percentage of batch room capacity filled by enrolled students.
       fill_rate = usercount / userlimit * 100 from gold_batch_rooms.
     sql_fragment: "ROUND(TRY_CAST(usercount AS DOUBLE) / NULLIF(userlimit, 0) * 100, 2)"
-    synonyms: [occupancy, capacity utilization, enrollment rate]
+    synonyms: [occupancy, capacity utilization, enrollment rate, seat utilization]
+    category: [enrollment, analytics]
 
-  - term: churn
+  - term: batch_plan
     definition: >
-      Students who had an active batch assignment and later became
-      inactive. Measured via is_active = false in assignment tables.
+      Pricing plan for a batch. Each batch can have multiple plans with
+      different durations and prices. Use gold_batch_plans for plan details.
+      Key columns: price, duration, durationtype, discount, title, batchid.
     sql_fragment: ""
-    synonyms: [dropout, attrition, student loss, cancellation]
+    synonyms: [pricing plan, subscription plan, batch pricing, course plan]
+    category: [batch, payment]
+
+  - term: batch_room
+    definition: >
+      A room/section within a batch. gold_batch_rooms holds per-room
+      enrollment (usercount), capacity (userlimit), status, and subject mapping.
+      Join to gold_batches via batchid = _id (TRY_CAST to VARCHAR).
+    sql_fragment: ""
+    synonyms: [room, section, batch section, class room]
+    category: [batch, enrollment]
+
+  # ── Core: Revenue & Payments ────────────────────────────────────────
+
+  - term: revenue
+    definition: >
+      Total revenue = SUM(price) from gold_orders. The 'price' column
+      represents the net amount paid after all discounts. Do NOT use
+      'wallet', 'cashback', 'discount' columns — those are breakdowns.
+    sql_fragment: "SUM(price)"
+    synonyms: [income, sales, earnings, total sales, money collected, GMV]
+    category: [revenue, payment]
 
   - term: average_order_value
     definition: >
@@ -289,19 +681,462 @@ business_rules:
       Also known as AOV.
     sql_fragment: "AVG(price)"
     synonyms: [AOV, avg order, average purchase, average transaction]
+    category: [revenue, analytics]
+
+  - term: order
+    definition: >
+      A purchase transaction. gold_orders contains batchid, userid, price,
+      wallet, cashback, discount, createdat, isrefund, paymentstatus.
+      Filter paymentstatus if needed; price is the net amount.
+    sql_fragment: ""
+    synonyms: [purchase, transaction, sale, booking]
+    category: [revenue, payment]
+
+  - term: refund
+    definition: >
+      Reversed payment. In gold_orders, isrefund = true marks refund records.
+      Refund amounts appear as negative price or separate refund rows.
+    sql_fragment: "isrefund = true"
+    synonyms: [reversal, cancellation refund, money back]
+    category: [revenue, payment]
+
+  - term: discount
+    definition: >
+      Price reduction applied at checkout. gold_orders has 'discount' column
+      for per-order discount amount. gold_coupons has coupon-level discounts.
+      For offline: gold_dbt_offline_concession tracks concessions.
+    sql_fragment: ""
+    synonyms: [coupon, offer, concession, price reduction, promo]
+    category: [payment, revenue]
+
+  - term: wallet
+    definition: >
+      PW wallet/cashback balance used for payment. gold_orders has 'wallet'
+      column showing wallet amount applied. 'cashback' is a separate column.
+    sql_fragment: ""
+    synonyms: [cashback, wallet balance, PW coins, reward points]
+    category: [payment]
+
+  - term: payment_gateway
+    definition: >
+      Payment processor (Razorpay, Paytm, etc.). LMS gold_payments has
+      'gateway' column. gold_orders does not store gateway directly.
+      For gateway analysis, join via orderid or use gold_payments.
+    sql_fragment: ""
+    synonyms: [gateway, payment method, payment processor, razorpay, paytm]
+    category: [payment]
+
+  - term: arpu
+    definition: >
+      Average Revenue Per User. For offline students:
+      net_amount_w_o_gst from gold_dbt_offline_fees_details or
+      arpu column in gold_dbt_offline_students_details_conversion_user_level.
+    sql_fragment: ""
+    synonyms: [ARPU, average revenue per user, per-student revenue]
+    category: [revenue, analytics]
+
+  - term: offline_fee
+    definition: >
+      Offline student fees tracked in gold_dbt_offline_fees_details:
+      scheme_amount_w_o_gst (gross), concession, net_amount_w_o_gst,
+      fees_paid, outstanding balance. Also gold_offline_bill_data for bills.
+    sql_fragment: ""
+    synonyms: [fees, tuition, offline payment, fee collection]
+    category: [payment, offline]
+
+  - term: student_fee_mapping
+    definition: >
+      Online per-installment payment records. gold_student_fee_mappings:
+      userid, batchid, amount, discount, cashback, installmentnumber,
+      status, paymenttype. Good for installment-level analysis.
+    sql_fragment: ""
+    synonyms: [installment, EMI, fee installment, payment schedule]
+    category: [payment]
+
+  # ── Core: Faculty & Lectures ────────────────────────────────────────
+
+  - term: faculty
+    definition: >
+      Teachers/instructors who conduct lectures. Faculty information is in
+      gold_dbt_lecture_batch_info (faculty_name, faculty_id columns) and
+      offline ACPR tables (teacherid, faculty_name). No separate faculty master.
+    sql_fragment: ""
+    synonyms: [teacher, instructor, educator, professor, tutor, sir, maam]
+    category: [faculty, lecture]
+
+  - term: lecture
+    definition: >
+      A single class session. gold_dbt_lecture_batch_info has lecture_date,
+      lecture_type (LIVE/VOD), batch_id, faculty_id, faculty_name,
+      subject_name, topic_name, duration. Key table for lecture analytics.
+    sql_fragment: ""
+    synonyms: [class, session, teaching session, video lecture, live class]
+    category: [lecture]
+
+  - term: lecture_count
+    definition: >
+      Number of lectures. COUNT(*) from gold_dbt_lecture_batch_info.
+      Group by batch_id for per-batch, by faculty_id for per-teacher,
+      by DATE(lecture_date) for daily.
+    sql_fragment: "COUNT(*)"
+    synonyms: [number of lectures, classes taken, sessions conducted]
+    category: [lecture, analytics]
+
+  - term: lecture_duration
+    definition: >
+      Duration of a lecture in minutes. gold_dbt_lecture_batch_info
+      has 'duration' column. AVG(duration) for average lecture length.
+    sql_fragment: "AVG(duration)"
+    synonyms: [class duration, session length, teaching hours]
+    category: [lecture, analytics]
+
+  - term: live_lecture
+    definition: >
+      Real-time streaming lecture. lecture_type = 'LIVE' in
+      gold_dbt_lecture_batch_info. Contrast with VOD (video on demand).
+    sql_fragment: "lecture_type = 'LIVE'"
+    synonyms: [live class, live session, real-time class, streaming class]
+    category: [lecture]
+
+  # ── Core: Exams & Tests ─────────────────────────────────────────────
+
+  - term: exam_category
+    definition: >
+      The target competitive exam. Main categories: NEET (medical),
+      JEE/IIT-JEE (engineering), UPSC (civil services), SSC (staff
+      selection), Banking, GATE, CUET, and state-specific exams.
+      gold_batches has 'exam' column with the exam category.
+    sql_fragment: ""
+    synonyms: [exam, test, competition, entrance exam, target exam]
+    category: [exam]
+
+  - term: test_category
+    definition: >
+      Classification of test/assessment. gold_test_categories has name,
+      programid, totaltests. For offline tests: silver_offline_batch_test_status
+      has test_name, status, enrollments.
+    sql_fragment: ""
+    synonyms: [test type, assessment type, quiz category]
+    category: [exam, content]
+
+  - term: test_performance
+    definition: >
+      Student score on tests. gold_dbt_offline_solutions_mapped has per-question
+      results: status (correct/incorrect), time_taken, difficultylevel.
+      For offline test journey: gold_dbt_offline_students_test_journey tables.
+    sql_fragment: ""
+    synonyms: [test score, exam result, marks, performance, grade]
+    category: [exam, student, analytics]
+
+  # ── Core: Students ──────────────────────────────────────────────────
+
+  - term: offline_student
+    definition: >
+      Student enrolled in physical center classes. gold_dbt_offline_students_details:
+      student_id, regno, student_name, batch, batch_id, center, region,
+      joining_date, class_course, acad_year, enrolled_years.
+    sql_fragment: ""
+    synonyms: [offline learner, center student, physical student]
+    category: [student, offline]
+
+  - term: churn
+    definition: >
+      Students who had an active batch assignment and later became
+      inactive. Measured via is_active = false in assignment tables.
+      For offline: batch_remove_date IS NOT NULL in gold_offline_assigned_batch.
+    sql_fragment: ""
+    synonyms: [dropout, attrition, student loss, cancellation, drop]
+    category: [student, analytics]
+
+  - term: cohort
+    definition: >
+      A group of students segmented by a specific attribute, typically
+      their enrollment period or exam target year (e.g., "NEET 2025 cohort").
+      Can also be segmented by joining_date month or acad_year.
+    sql_fragment: ""
+    synonyms: [batch year, enrollment group, student group, intake]
+    category: [student, analytics]
+
+  - term: retention
+    definition: >
+      Students who continue from one academic year to the next.
+      gold_dbt_offline_re_enrolled_ay24 tracks re-enrollment with
+      current_regno and previous_regno. Compare across acad_year periods.
+    sql_fragment: ""
+    synonyms: [re-enrollment, renewal, returning students, repeat students]
+    category: [student, analytics, funnel]
+
+  - term: student_journey
+    definition: >
+      Lifecycle tracking of a student from enrollment through tests and
+      completion. gold_dbt_offline_batch_journey tracks batch transitions.
+      gold_dbt_offline_students_test_journey tracks test participation.
+    sql_fragment: ""
+    synonyms: [lifecycle, student path, progression, student timeline]
+    category: [student, analytics]
+
+  # ── Core: Offline / Centers ─────────────────────────────────────────
+
+  - term: offline_center
+    definition: >
+      Physical classroom location. gold_offline_centers_data: branch_id,
+      branch_name, is_active, address, city, state, division.
+      gold_offline_centers_data_tmp has center_code, emergency_code.
+    sql_fragment: ""
+    synonyms: [center, branch, campus, classroom, physical center, coaching center]
+    category: [center, offline]
+
+  - term: region
+    definition: >
+      Geographic grouping of offline centers. Hierarchy: Region → Combined Center
+      → Center. Region appears in most offline tables. Used for geographic comparison.
+    sql_fragment: ""
+    synonyms: [zone, area, territory, geographic region]
+    category: [center, offline, comparison]
+
+  - term: combined_center
+    definition: >
+      Group of nearby centers managed together. Middle level of
+      Region → Combined Center → Center hierarchy. Appears in offline tables
+      like gold_dbt_offline_attendance, gold_dbt_offline_fees_details.
+    sql_fragment: ""
+    synonyms: [center group, cluster, center cluster]
+    category: [center, offline]
+
+  - term: offline_attendance
+    definition: >
+      RFID-based student attendance at offline centers.
+      gold_dbt_offline_attendance_ay25_26 has reg_no, center, region,
+      attendance_pct. gold_dbt_offline_attendance_details has per-punch
+      data with punch_date, punch_time, attendance_status.
+    sql_fragment: ""
+    synonyms: [attendance, presence, check-in, class attendance]
+    category: [offline, student, analytics]
+
+  - term: offline_batch
+    definition: >
+      Physical classroom batch. gold_offline_batch_data: batch_room_id,
+      room_name, batch_code, shift, gender, is_active, branch_id, phase.
+      Join to centers via branch_id.
+    sql_fragment: ""
+    synonyms: [physical batch, center batch, classroom batch]
+    category: [offline, batch]
+
+  - term: scheme
+    definition: >
+      Fee plan/package for offline students. The 'newscheme' column in
+      gold_dbt_offline_students_details holds the fee scheme name.
+      gold_dbt_offline_fees_details has scheme_amount_w_o_gst.
+    sql_fragment: ""
+    synonyms: [fee scheme, fee plan, offline plan, package]
+    category: [offline, payment]
+
+  - term: vertical
+    definition: >
+      Business vertical within offline: typically 'NEET', 'JEE', etc.
+      Used to segment offline centers and students by target exam.
+      Appears in most offline tables.
+    sql_fragment: ""
+    synonyms: [stream, division, vertical segment]
+    category: [offline, exam]
+
+  # ── Core: Content & Courses ─────────────────────────────────────────
+
+  - term: content
+    definition: >
+      Educational content (video, notes, exercise). gold_contents has
+      _id, title, topicid, type, status. Content is organized under
+      subjects → chapters → topics → content.
+    sql_fragment: ""
+    synonyms: [study material, video, notes, resources, course material]
+    category: [content]
+
+  - term: subject
+    definition: >
+      Academic subject (Physics, Chemistry, Mathematics, Biology, etc.).
+      gold_subjects has _id, name, programid, totaltopics, totalchapters,
+      totalexercises. gold_subjects_pw is the PW-specific version.
+    sql_fragment: ""
+    synonyms: [course subject, discipline, academic subject]
+    category: [content, lecture]
+
+  - term: course
+    definition: >
+      LMS course. gold_courses has _id, title, description, mode,
+      categoryid, active, accesstype. Different from batches — courses
+      represent content packages while batches represent enrollment groups.
+    sql_fragment: ""
+    synonyms: [LMS course, program, curriculum]
+    category: [content]
 
   - term: completion_rate
     definition: >
       Percentage of content completed by students. Tracked in
-      LMS coursesubmissions table. Not directly in batch tables.
+      gold_coursesubmissions: lessontype, userid, courseid, lessonid.
+      completion_rate = completed_lessons / total_lessons * 100.
     sql_fragment: ""
-    synonyms: [progress, course completion, content completion]
+    synonyms: [progress, course completion, content completion, completion pct]
+    category: [content, analytics]
+
+  # ── Funnel & Conversion ─────────────────────────────────────────────
+
+  - term: enquiry
+    definition: >
+      Initial lead/inquiry from a prospective student. gold_dbt_offline_enquiry_conversion:
+      enquiry_number, enquiry_date, mobile_no, course, program, center_name,
+      disposition. Track conversion to enrollment via joining_date.
+    sql_fragment: ""
+    synonyms: [lead, inquiry, prospect, walk-in, enquiry]
+    category: [funnel, offline]
+
+  - term: conversion
+    definition: >
+      Enquiry-to-enrollment conversion. gold_dbt_offline_conversion_data
+      has joining_date, center_name, region, program.
+      Conversion rate = enrolled / total_enquiries * 100.
+    sql_fragment: ""
+    synonyms: [enrollment conversion, lead conversion, signup rate]
+    category: [funnel, analytics]
+
+  - term: btl_lead
+    definition: >
+      Below-the-line marketing lead. gold_dbt_offline_btl_leads_ay25:
+      registered_mobile, lead_date, campaign, marketing_activity,
+      lead_class, lead_stream. For tracking marketing-driven enrollment.
+    sql_fragment: ""
+    synonyms: [marketing lead, BTL, field lead, campaign lead]
+    category: [funnel, offline]
+
+  - term: drip_campaign
+    definition: >
+      Automated outreach campaign. gold_dbt_offline_drip_data_report:
+      drip_date, campaign_name, caller_phone_number.
+      Track whether drip contacts converted to enrollment.
+    sql_fragment: ""
+    synonyms: [drip, automated call, follow-up campaign, outreach]
+    category: [funnel, offline]
+
+  # ── Time Series & Comparison ────────────────────────────────────────
+
+  - term: month_over_month
+    definition: >
+      Comparison between consecutive months. Use DATE_TRUNC('month', timestamp_col)
+      to group, then LAG() or self-join for comparison.
+      Common for revenue, enrollment, lecture trends.
+    sql_fragment: "DATE_TRUNC('month', createdat)"
+    synonyms: [MoM, monthly comparison, month-on-month, monthly trend]
+    category: [time_series, comparison]
+
+  - term: year_over_year
+    definition: >
+      Comparison between same periods across years. Use EXTRACT(YEAR FROM ...)
+      and compare. Common for revenue growth, enrollment growth.
+    sql_fragment: "EXTRACT(YEAR FROM createdat)"
+    synonyms: [YoY, yearly comparison, year-on-year, annual comparison]
+    category: [time_series, comparison]
+
+  - term: daily_trend
+    definition: >
+      Day-level time series. Use DATE(timestamp_col) or DATE_TRUNC('day', ...).
+      Common for daily revenue, daily enrollments, daily lecture counts.
+    sql_fragment: "DATE(createdat)"
+    synonyms: [daily, day-wise, day-over-day, daily breakdown]
+    category: [time_series]
+
+  - term: this_month
+    definition: >
+      Current calendar month filter. Use createdat >= DATE_TRUNC('month', CURRENT_DATE).
+      For orders, lectures, enrollments.
+    sql_fragment: "createdat >= DATE_TRUNC('month', CURRENT_DATE)"
+    synonyms: [current month, MTD, month to date]
+    category: [time_series]
+
+  - term: last_30_days
+    definition: >
+      Rolling 30-day window. Use createdat >= CURRENT_DATE - INTERVAL '30' DAY.
+    sql_fragment: "createdat >= CURRENT_DATE - INTERVAL '30' DAY"
+    synonyms: [past 30 days, last month, recent 30 days]
+    category: [time_series]
+
+  - term: academic_year
+    definition: >
+      Academic year period, typically April to March in India.
+      Offline tables use acad_year column (e.g., '2024-25', '2025-26').
+      Many offline tables are partitioned by academic year with _ay24_25 suffix.
+    sql_fragment: ""
+    synonyms: [AY, academic session, school year, session]
+    category: [time_series, offline]
+
+  # ── Analytics & Metrics ─────────────────────────────────────────────
+
+  - term: top_n
+    definition: >
+      Ranking query pattern. Use ORDER BY metric DESC LIMIT N.
+      Common: top batches by revenue, top faculty by lectures,
+      top centers by enrollment.
+    sql_fragment: "ORDER BY ... DESC LIMIT"
+    synonyms: [top, best, highest, most popular, leading, maximum]
+    category: [analytics, comparison]
+
+  - term: bottom_n
+    definition: >
+      Inverse ranking. ORDER BY metric ASC LIMIT N.
+      Common: lowest performing centers, least enrolled batches.
+    sql_fragment: "ORDER BY ... ASC LIMIT"
+    synonyms: [bottom, worst, lowest, least, minimum, weakest]
+    category: [analytics, comparison]
+
+  - term: growth_rate
+    definition: >
+      Percentage change between two periods.
+      (current - previous) / previous * 100
+      Use LAG() window function for period-over-period comparison.
+    sql_fragment: "ROUND((current_val - prev_val) / NULLIF(prev_val, 0) * 100, 2)"
+    synonyms: [growth, increase rate, change rate, trend, growth percentage]
+    category: [analytics, time_series, comparison]
+
+  - term: distribution
+    definition: >
+      Frequency distribution of a metric. Use COUNT(*) GROUP BY bucket.
+      Common: revenue distribution by exam, enrollment by region,
+      lectures by subject.
+    sql_fragment: ""
+    synonyms: [breakdown, split, spread, composition, allocation]
+    category: [analytics]
+
+  - term: running_total
+    definition: >
+      Cumulative sum over time. Use SUM(...) OVER (ORDER BY date_col).
+      Common: cumulative revenue, cumulative enrollment.
+    sql_fragment: "SUM(metric) OVER (ORDER BY date_col)"
+    synonyms: [cumulative, running sum, progressive total, accumulated]
+    category: [analytics, time_series]
+
+  - term: percentile
+    definition: >
+      Statistical percentile. In Trino use APPROX_PERCENTILE(col, pct)
+      or PERCENTILE_CONT(pct) WITHIN GROUP (ORDER BY col).
+      Common: P50/P90 revenue, P50 lecture duration.
+    sql_fragment: "APPROX_PERCENTILE(col, 0.5)"
+    synonyms: [P50, P90, median, quartile]
+    category: [analytics]
+
+  - term: active_vs_inactive
+    definition: >
+      Comparison of active vs inactive entities. Use CASE WHEN or
+      COUNT(*) FILTER (WHERE status = 'active') vs total.
+      Applies to batches, students, centers, plans.
+    sql_fragment: "COUNT(*) FILTER (WHERE status = 'active')"
+    synonyms: [active inactive ratio, status comparison, active percentage]
+    category: [comparison, analytics]
 
 # ═══════════════════════════════════════════════════════════════════════
 # VERIFIED QUERIES — gold-standard Q-SQL pairs
 # ═══════════════════════════════════════════════════════════════════════
 
 verified_queries:
+
+  # ── Onboarding / Simple ─────────────────────────────────────────────
 
   - question: "How many active batches are there?"
     sql: >
@@ -310,6 +1145,7 @@ verified_queries:
       WHERE status = 'active'
     use_as_onboarding: true
     notes: Use gold_batches for the canonical batch count.
+    category: batch
 
   - question: "What is the total revenue?"
     sql: >
@@ -317,13 +1153,34 @@ verified_queries:
       FROM cdp.cdp_revenue.gold_orders
     use_as_onboarding: true
     notes: price column has the net amount after discounts.
+    category: revenue
+
+  - question: "How many offline centers are active?"
+    sql: >
+      SELECT COUNT(DISTINCT branch_id) AS active_center_count
+      FROM cdp.offline.gold_offline_centers_data
+      WHERE is_active = true
+    use_as_onboarding: true
+    notes: Use gold_offline_centers_data for center counts.
+    category: center
+
+  - question: "How many offline students are enrolled?"
+    sql: >
+      SELECT COUNT(DISTINCT student_id) AS offline_student_count
+      FROM cdp.offline.gold_dbt_offline_students_details
+    use_as_onboarding: true
+    notes: gold_dbt_offline_students_details is the offline student master.
+    category: student
+
+  # ── Enrollment & Batch ──────────────────────────────────────────────
 
   - question: "Top 10 batches by student enrollment"
     sql: >
       SELECT b.name AS batch_name,
              SUM(br.usercount) AS student_count
       FROM cdp.cdp_revenue.gold_batches b
-      JOIN cdp.central.gold_batch_rooms br ON TRY_CAST(b._id AS VARCHAR) = TRY_CAST(br.batchid AS VARCHAR)
+      JOIN cdp.central.gold_batch_rooms br
+        ON TRY_CAST(b._id AS VARCHAR) = TRY_CAST(br.batchid AS VARCHAR)
       WHERE b.status = 'active' AND br.status = 'active'
       GROUP BY b.name
       ORDER BY student_count DESC
@@ -332,18 +1189,38 @@ verified_queries:
     notes: >
       Join gold_batches with gold_batch_rooms on _id = batchid.
       Use TRY_CAST to handle mixed types. Both tables filter on status = 'active'.
+    category: enrollment
 
-  - question: "Average number of lectures per active batch"
+  - question: "What is the fill rate for each active batch?"
     sql: >
-      SELECT AVG(lecture_count) AS avg_lectures_per_batch
-      FROM (
-        SELECT batch_id, COUNT(*) AS lecture_count
-        FROM cdp.mview.gold_dbt_lecture_batch_info
-        WHERE batch_status = 'active'
-        GROUP BY batch_id
-      ) batch_lectures
+      SELECT b.name AS batch_name,
+             SUM(br.usercount) AS enrolled,
+             SUM(br.userlimit) AS capacity,
+             ROUND(TRY_CAST(SUM(br.usercount) AS DOUBLE) /
+                   NULLIF(SUM(br.userlimit), 0) * 100, 2) AS fill_rate_pct
+      FROM cdp.cdp_revenue.gold_batches b
+      JOIN cdp.central.gold_batch_rooms br
+        ON TRY_CAST(b._id AS VARCHAR) = TRY_CAST(br.batchid AS VARCHAR)
+      WHERE b.status = 'active' AND br.status = 'active'
+      GROUP BY b.name
+      ORDER BY fill_rate_pct DESC
     use_as_onboarding: false
-    notes: Use gold_dbt_lecture_batch_info, group by batch_id.
+    notes: Fill rate = usercount / userlimit * 100.
+    category: enrollment
+
+  - question: "How many students enrolled in NEET batches?"
+    sql: >
+      SELECT SUM(br.usercount) AS neet_students
+      FROM cdp.cdp_revenue.gold_batches b
+      JOIN cdp.central.gold_batch_rooms br
+        ON TRY_CAST(b._id AS VARCHAR) = TRY_CAST(br.batchid AS VARCHAR)
+      WHERE b.status = 'active'
+        AND LOWER(b.exam) LIKE '%neet%'
+    use_as_onboarding: false
+    notes: Filter batches by exam LIKE '%neet%' for NEET category.
+    category: exam
+
+  # ── Revenue & Payment ───────────────────────────────────────────────
 
   - question: "Revenue by exam category this month"
     sql: >
@@ -357,12 +1234,181 @@ verified_queries:
       ORDER BY revenue DESC
     use_as_onboarding: false
     notes: Join orders to batches to get exam category. Filter by current month.
+    category: revenue
+
+  - question: "Daily revenue for the last 30 days"
+    sql: >
+      SELECT DATE(createdat) AS order_date,
+             SUM(price) AS daily_revenue,
+             COUNT(*) AS order_count
+      FROM cdp.cdp_revenue.gold_orders
+      WHERE createdat >= CURRENT_DATE - INTERVAL '30' DAY
+      GROUP BY DATE(createdat)
+      ORDER BY order_date
+    use_as_onboarding: false
+    notes: Use DATE(createdat) for daily grouping.
+    category: time_series
+
+  - question: "Average order value by month"
+    sql: >
+      SELECT DATE_TRUNC('month', createdat) AS month,
+             AVG(price) AS avg_order_value,
+             COUNT(*) AS order_count
+      FROM cdp.cdp_revenue.gold_orders
+      WHERE createdat >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '6' MONTH
+      GROUP BY DATE_TRUNC('month', createdat)
+      ORDER BY month
+    use_as_onboarding: false
+    notes: DATE_TRUNC for monthly grouping, last 6 months.
+    category: revenue
+
+  - question: "Total offline fees collected by region"
+    sql: >
+      SELECT s.region,
+             SUM(f.fees_paid) AS total_collected,
+             SUM(f.net_amount_w_o_gst) AS total_due,
+             ROUND(SUM(f.fees_paid) * 100.0 /
+                   NULLIF(SUM(f.net_amount_w_o_gst), 0), 2) AS collection_pct
+      FROM cdp.offline.gold_dbt_offline_fees_details f
+      JOIN cdp.offline.gold_dbt_offline_students_details s
+        ON f.regno = s.regno
+      GROUP BY s.region
+      ORDER BY total_collected DESC
+    use_as_onboarding: false
+    notes: Join fees to students for region. collection_pct = paid/due * 100.
+    category: payment
+
+  # ── Faculty & Lecture ───────────────────────────────────────────────
+
+  - question: "Average number of lectures per active batch"
+    sql: >
+      SELECT AVG(lecture_count) AS avg_lectures_per_batch
+      FROM (
+        SELECT batch_id, COUNT(*) AS lecture_count
+        FROM cdp.mview.gold_dbt_lecture_batch_info
+        WHERE batch_status = 'active'
+        GROUP BY batch_id
+      ) batch_lectures
+    use_as_onboarding: false
+    notes: Use gold_dbt_lecture_batch_info, group by batch_id.
+    category: lecture
+
+  - question: "Top 10 faculty by number of lectures"
+    sql: >
+      SELECT faculty_name,
+             COUNT(*) AS lecture_count,
+             COUNT(DISTINCT batch_id) AS batch_count
+      FROM cdp.mview.gold_dbt_lecture_batch_info
+      WHERE faculty_name IS NOT NULL
+      GROUP BY faculty_name
+      ORDER BY lecture_count DESC
+      LIMIT 10
+    use_as_onboarding: false
+    notes: Group by faculty_name from gold_dbt_lecture_batch_info.
+    category: faculty
+
+  - question: "Lectures per subject for active batches"
+    sql: >
+      SELECT subject_name,
+             COUNT(*) AS lecture_count,
+             COUNT(DISTINCT batch_id) AS batch_count
+      FROM cdp.mview.gold_dbt_lecture_batch_info
+      WHERE batch_status = 'active'
+        AND subject_name IS NOT NULL
+      GROUP BY subject_name
+      ORDER BY lecture_count DESC
+    use_as_onboarding: false
+    notes: Group by subject_name for subject-level lecture distribution.
+    category: lecture
+
+  # ── Offline & Center ────────────────────────────────────────────────
+
+  - question: "Center-wise student count for offline"
+    sql: >
+      SELECT center,
+             COUNT(DISTINCT student_id) AS student_count
+      FROM cdp.offline.gold_dbt_offline_students_details
+      GROUP BY center
+      ORDER BY student_count DESC
+    use_as_onboarding: false
+    notes: Use gold_dbt_offline_students_details grouped by center.
+    category: center
+
+  - question: "Offline enrollment by region and program"
+    sql: >
+      SELECT region,
+             program,
+             COUNT(DISTINCT student_id) AS student_count
+      FROM cdp.offline.gold_dbt_offline_students_details
+      GROUP BY region, program
+      ORDER BY student_count DESC
+    use_as_onboarding: false
+    notes: Cross-tab of region × program from offline students.
+    category: offline
+
+  # ── Funnel & Conversion ─────────────────────────────────────────────
+
+  - question: "Enquiry-to-enrollment conversion rate by center"
+    sql: >
+      SELECT center_name,
+             COUNT(DISTINCT enquiry_number) AS total_enquiries,
+             COUNT(DISTINCT CASE WHEN regno IS NOT NULL THEN enquiry_number END) AS converted,
+             ROUND(
+               COUNT(DISTINCT CASE WHEN regno IS NOT NULL THEN enquiry_number END) * 100.0 /
+               NULLIF(COUNT(DISTINCT enquiry_number), 0),
+             2) AS conversion_rate
+      FROM cdp.offline.gold_dbt_offline_enquiry_conversion
+      GROUP BY center_name
+      ORDER BY conversion_rate DESC
+    use_as_onboarding: false
+    notes: regno IS NOT NULL means the enquiry converted to enrollment.
+    category: funnel
+
+  # ── Comparison / Analytics ──────────────────────────────────────────
+
+  - question: "Compare online vs offline student count"
+    sql: >
+      SELECT 'Online' AS mode,
+             SUM(br.usercount) AS student_count
+      FROM cdp.central.gold_batch_rooms br
+      JOIN cdp.cdp_revenue.gold_batches b
+        ON TRY_CAST(br.batchid AS VARCHAR) = TRY_CAST(b._id AS VARCHAR)
+      WHERE br.status = 'active' AND b.status = 'active'
+      UNION ALL
+      SELECT 'Offline' AS mode,
+             COUNT(DISTINCT student_id) AS student_count
+      FROM cdp.offline.gold_dbt_offline_students_details
+    use_as_onboarding: false
+    notes: UNION ALL to combine online (batch rooms) and offline (student details).
+    category: comparison
+
+  - question: "Month-over-month revenue growth"
+    sql: >
+      WITH monthly AS (
+        SELECT DATE_TRUNC('month', createdat) AS month,
+               SUM(price) AS revenue
+        FROM cdp.cdp_revenue.gold_orders
+        WHERE createdat >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12' MONTH
+        GROUP BY DATE_TRUNC('month', createdat)
+      )
+      SELECT month,
+             revenue,
+             LAG(revenue) OVER (ORDER BY month) AS prev_month_revenue,
+             ROUND((revenue - LAG(revenue) OVER (ORDER BY month)) * 100.0 /
+                   NULLIF(LAG(revenue) OVER (ORDER BY month), 0), 2) AS mom_growth_pct
+      FROM monthly
+      ORDER BY month
+    use_as_onboarding: false
+    notes: LAG window function for month-over-month comparison.
+    category: time_series
 
 # ═══════════════════════════════════════════════════════════════════════
 # RELATIONSHIPS — explicit join paths between key tables
 # ═══════════════════════════════════════════════════════════════════════
 
 relationships:
+
+  # ── Online / Revenue joins ──────────────────────────────────────────
 
   - left_table: cdp.cdp_revenue.gold_batches
     right_table: cdp.central.gold_batch_rooms
@@ -391,6 +1437,27 @@ relationships:
     cast_type: VARCHAR
     notes: Lecture info references batches via batch_id
 
+  - left_table: cdp.cdp_revenue.gold_batches
+    right_table: cdp.cdp_revenue.gold_batch_plans
+    join_columns:
+      left: _id
+      right: batchid
+    cast_required: true
+    cast_type: VARCHAR
+    notes: Batch plans reference parent batch via batchid
+
+  - left_table: cdp.cdp_revenue.gold_orders
+    right_table: cdp.cdp_revenue.gold_student_fee_mappings
+    join_columns:
+      left: userid
+      right: userid
+    cast_required: false
+    notes: >
+      Join on userid for student-level order + installment analysis.
+      Also join on batchid for batch-specific fee records.
+
+  # ── LMS joins ───────────────────────────────────────────────────────
+
   - left_table: cdp.lms.gold_courses
     right_table: cdp.lms.gold_payments
     join_columns:
@@ -398,3 +1465,57 @@ relationships:
       right: courseid
     cast_required: false
     notes: LMS payments reference courses directly
+
+  - left_table: cdp.lms.gold_courses
+    right_table: cdp.lms.gold_coursesubmissions
+    join_columns:
+      left: _id
+      right: courseid
+    cast_required: false
+    notes: Course submissions reference courses via courseid
+
+  # ── Offline joins ───────────────────────────────────────────────────
+
+  - left_table: cdp.offline.gold_dbt_offline_students_details
+    right_table: cdp.offline.gold_dbt_offline_fees_details
+    join_columns:
+      left: regno
+      right: regno
+    cast_required: false
+    notes: Join offline students to fees on registration number
+
+  - left_table: cdp.offline.gold_dbt_offline_students_details
+    right_table: cdp.offline.gold_offline_assigned_batch
+    join_columns:
+      left: student_id
+      right: student_id
+    cast_required: false
+    notes: >
+      Join offline students to batch assignments. Also joinable via
+      batch_id column.
+
+  - left_table: cdp.offline.gold_dbt_offline_students_details
+    right_table: cdp.offline.gold_dbt_offline_attendance_ay25_26
+    join_columns:
+      left: regno
+      right: reg_no
+    cast_required: false
+    notes: Join students to attendance via registration number
+
+  - left_table: cdp.offline.gold_offline_centers_data
+    right_table: cdp.offline.gold_offline_batch_data
+    join_columns:
+      left: branch_id
+      right: branch_id
+    cast_required: false
+    notes: Join centers to batch rooms via branch_id
+
+  - left_table: cdp.offline.gold_dbt_offline_students_details
+    right_table: cdp.offline.gold_dbt_offline_enquiry_conversion
+    join_columns:
+      left: regno
+      right: regno
+    cast_required: false
+    notes: >
+      Join converted students back to their original enquiry.
+      Only converted enquiries will have a matching regno.

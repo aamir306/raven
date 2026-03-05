@@ -49,20 +49,39 @@ class CandidateSelector:
         candidates: list[str],
         pruned_schema: str,
         content_awareness: list[dict],
+        retrieval_quality: dict | None = None,
     ) -> dict:
         """
         Select best SQL from candidates via pairwise comparison + validation.
 
-        Returns dict: {sql, confidence, errors_found, explanation}
+        Args:
+            retrieval_quality: Optional dict with retrieval context signals:
+                - entity_match_count: number of entity matches found
+                - glossary_match_count: number of glossary matches
+                - similar_query_top_sim: similarity of best matching question
+                - table_count: number of selected tables
+                - probe_count: number of probe results
+                - has_few_shot: whether few-shot examples were available
+
+        Returns dict: {sql, confidence, confidence_score, errors_found, explanation}
         """
+        retrieval_quality = retrieval_quality or {}
+
         if len(candidates) == 1:
             # Single candidate — just validate
             errors = await self._taxonomy_check(
                 candidates[0], question, pruned_schema, content_awareness,
             )
+            confidence, score = self._score_confidence(
+                n_candidates=1,
+                errors_found=bool(errors),
+                cost_ok=True,
+                retrieval_quality=retrieval_quality,
+            )
             return {
                 "sql": candidates[0],
-                "confidence": "MEDIUM" if not errors else "LOW",
+                "confidence": confidence,
+                "confidence_score": score,
                 "errors_found": errors,
             }
 
@@ -78,15 +97,17 @@ class CandidateSelector:
         cost_ok = await self._check_cost_guard(winner)
 
         # Confidence scoring
-        confidence = self._score_confidence(
+        confidence, score = self._score_confidence(
             n_candidates=len(candidates),
             errors_found=bool(errors),
             cost_ok=cost_ok,
+            retrieval_quality=retrieval_quality,
         )
 
         return {
             "sql": winner,
             "confidence": confidence,
+            "confidence_score": score,
             "errors_found": errors,
             "cost_ok": cost_ok,
         }
@@ -194,20 +215,63 @@ class CandidateSelector:
         n_candidates: int,
         errors_found: bool,
         cost_ok: bool,
-    ) -> str:
-        """Score confidence as HIGH / MEDIUM / LOW."""
-        score = 0
-        if n_candidates >= 3:
-            score += 2  # Multiple candidates compared
-        elif n_candidates >= 2:
-            score += 1
-        if not errors_found:
-            score += 2
-        if cost_ok:
-            score += 1
+        retrieval_quality: dict | None = None,
+    ) -> tuple[str, float]:
+        """Score confidence as (HIGH/MEDIUM/LOW, numeric_score).
 
-        if score >= 4:
-            return "HIGH"
-        elif score >= 2:
-            return "MEDIUM"
-        return "LOW"
+        Scoring breakdown (max 10 points):
+          - Candidates compared:  3→2pts, 2→1pt, 1→0pts
+          - No errors found:      +2pts
+          - Cost guard passed:    +1pt
+          - Entity matches ≥1:    +1pt
+          - Glossary matches ≥1:  +1pt
+          - Similar query sim≥0.7: +2pts, ≥0.5: +1pt
+          - Probe evidence ≥1:    +1pt
+
+        Thresholds: ≥7 HIGH, ≥4 MEDIUM, <4 LOW
+        """
+        rq = retrieval_quality or {}
+        score = 0.0
+
+        # 1. Candidate diversity (0-2)
+        if n_candidates >= 3:
+            score += 2.0
+        elif n_candidates >= 2:
+            score += 1.0
+
+        # 2. Error-free (0-2)
+        if not errors_found:
+            score += 2.0
+
+        # 3. Cost guard (0-1)
+        if cost_ok:
+            score += 1.0
+
+        # 4. Entity matches — schema retrieval quality (0-1)
+        if rq.get("entity_match_count", 0) >= 1:
+            score += 1.0
+
+        # 5. Glossary matches — business rule coverage (0-1)
+        if rq.get("glossary_match_count", 0) >= 1:
+            score += 1.0
+
+        # 6. Similar query similarity — few-shot grounding (0-2)
+        top_sim = rq.get("similar_query_top_sim", 0.0)
+        if top_sim >= 0.70:
+            score += 2.0
+        elif top_sim >= 0.50:
+            score += 1.0
+
+        # 7. Probe evidence (0-1) — real data sampling
+        if rq.get("probe_count", 0) >= 1:
+            score += 1.0
+
+        # Normalize to [0, 1] range for external use
+        normalized = round(min(score / 10.0, 1.0), 2)
+
+        # Thresholds calibrated against eval results
+        if score >= 7:
+            return "HIGH", normalized
+        elif score >= 4:
+            return "MEDIUM", normalized
+        return "LOW", normalized

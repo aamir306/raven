@@ -314,11 +314,26 @@ class Pipeline:
         )
 
     async def _stage_validation(self, ctx: PipelineContext) -> None:
+        # Build retrieval quality signals for confidence calibration
+        top_sim = 0.0
+        if ctx.similar_queries:
+            top_sim = max(sq.get("similarity", 0.0) for sq in ctx.similar_queries)
+
+        retrieval_quality = {
+            "entity_match_count": len(ctx.entity_matches),
+            "glossary_match_count": len(ctx.glossary_matches),
+            "similar_query_top_sim": top_sim,
+            "table_count": len(ctx.selected_tables),
+            "probe_count": len(ctx.probe_evidence),
+            "has_few_shot": len(ctx.similar_queries) > 0,
+        }
+
         result = await self.validator.select_best(
             question=ctx.user_question,
             candidates=ctx.sql_candidates,
             pruned_schema=ctx.pruned_schema,
             content_awareness=ctx.content_awareness,
+            retrieval_quality=retrieval_quality,
         )
         ctx.selected_sql = result.get("sql", ctx.sql_candidates[0])
         ctx.confidence = result.get("confidence", "MEDIUM")
@@ -388,10 +403,42 @@ class Pipeline:
         }
 
     def _ambiguous_response(self, ctx: PipelineContext) -> dict:
+        # Build "Did you mean?" suggestions from retrieval results
+        suggestions: list[str] = []
+
+        # 1. Similar past questions (highest signal)
+        for sq in ctx.similar_queries[:5]:
+            q = sq.get("question", "").strip()
+            sim = sq.get("similarity", 0.0)
+            if q and sim >= 0.40 and q.lower() != ctx.user_question.lower():
+                suggestions.append(q)
+
+        # 2. Glossary terms that partially matched
+        seen = {s.lower() for s in suggestions}
+        for gm in ctx.glossary_matches[:5]:
+            term = gm.get("term", "").strip()
+            definition = gm.get("definition", "").strip()
+            if term and term.lower() not in seen:
+                hint = f"Ask about '{term}'"
+                if definition:
+                    hint += f" — {definition[:80]}"
+                suggestions.append(hint)
+                seen.add(term.lower())
+
+        # Cap at 5 suggestions
+        suggestions = suggestions[:5]
+
+        message = (
+            "Your question is ambiguous. Could you be more specific about what data you need?"
+        )
+        if suggestions:
+            message = "I'm not sure what you mean. Did you mean one of these?"
+
         return {
             "status": "ambiguous",
             "question": ctx.user_question,
-            "message": "Your question is ambiguous. Could you be more specific about what data you need?",
+            "message": message,
+            "suggestions": suggestions,
             "difficulty": "AMBIGUOUS",
             "timings": ctx.stage_timings,
             "cost": ctx.total_cost,

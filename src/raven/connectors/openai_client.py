@@ -61,6 +61,7 @@ class OpenAIClient:
     ) -> None:
         self._config = self._load_config(config_path or _CONFIG_PATH)
         self._cost_log: list[dict[str, Any]] = []
+        self._unavailable_models: set[str] = set()  # track models that 404
 
         # Detect Azure vs direct OpenAI
         azure_key = api_key or os.getenv("AZURE_OPENAI_API_KEY", "")
@@ -119,7 +120,12 @@ class OpenAIClient:
         return {}
 
     def _stage_config(self, stage_name: str) -> dict[str, Any]:
-        """Resolve config for a pipeline stage.  Supports nested keys like ``schema_selector.column_filter``."""
+        """Resolve config for a pipeline stage.  Supports nested keys like ``schema_selector.column_filter``.
+
+        Handles model fallback: if the configured ``model`` deployment is not
+        available (tracked in ``self._unavailable_models``), the stage-level
+        ``fallback_model`` or the global ``fallback_model`` is used instead.
+        """
         stages = self._config.get("stages", {})
         parts = stage_name.split(".")
         cfg = stages
@@ -132,6 +138,18 @@ class OpenAIClient:
             # Sensible default — use the primary deployment name (gpt4o for Azure)
             default_model = self._deployment or "gpt4o"
             return {"model": default_model, "max_tokens": 1000, "temperature": 0}
+
+        # Model fallback: if configured model is known-unavailable, swap to fallback
+        model = cfg["model"]
+        if model in self._unavailable_models:
+            fallback = (
+                cfg.get("fallback_model")
+                or self._config.get("fallback_model")
+                or self._deployment
+                or "gpt4o"
+            )
+            cfg = dict(cfg)  # copy to avoid mutating cached config
+            cfg["model"] = fallback
         return cfg
 
     # ------------------------------------------------------------------ #
@@ -224,6 +242,23 @@ class OpenAIClient:
                 )
                 await asyncio.sleep(wait)
             except APIError as exc:
+                # Detect 404 (deployment not found) → mark model unavailable & retry w/ fallback
+                if getattr(exc, "status_code", None) == 404 and model not in self._unavailable_models:
+                    self._unavailable_models.add(model)
+                    fallback = (
+                        cfg.get("fallback_model")
+                        or self._config.get("fallback_model")
+                        or self._deployment
+                        or "gpt4o"
+                    )
+                    logger.warning(
+                        "openai_model_fallback",
+                        missing_model=model,
+                        fallback=fallback,
+                        stage=stage_name,
+                    )
+                    model = fallback
+                    continue  # retry immediately with fallback model
                 logger.error("openai_api_error", error=str(exc), stage=stage_name)
                 raise
 
