@@ -34,12 +34,13 @@ export default function MetabasePushModal({ visible, sql, question, chartType, o
       // Load dashboards and collections
       const browserCfg = getMetabaseBrowserConfig();
       const headers = { 'Content-Type': 'application/json' };
+      const postOpts = { method: 'POST', headers, body: JSON.stringify(browserCfg) };
       Promise.all([
-        fetch(`${API_BASE}/api/metabase/dashboards`).then(r => r.json()).catch(() => ({ dashboards: [] })),
-        fetch(`${API_BASE}/api/metabase/collections`).then(r => r.json()).catch(() => ({ collections: [] })),
+        fetch(`${API_BASE}/api/metabase/dashboards`, postOpts).then(r => r.ok ? r.json() : { dashboards: [] }).catch(() => ({ dashboards: [] })),
+        fetch(`${API_BASE}/api/metabase/collections`, postOpts).then(r => r.ok ? r.json() : { collections: [] }).catch(() => ({ collections: [] })),
       ]).then(([d, c]) => {
-        setDashboards(d.dashboards || d || []);
-        setCollections(c.collections || c || []);
+        setDashboards(Array.isArray(d.dashboards) ? d.dashboards : Array.isArray(d) ? d : []);
+        setCollections(Array.isArray(c.collections) ? c.collections : Array.isArray(c) ? c : []);
       });
     }
   }, [visible, question, chartType]);

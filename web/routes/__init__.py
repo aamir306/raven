@@ -904,17 +904,19 @@ async def metabase_test_connection(body: dict = None):
     return result
 
 
-@metabase_router.get("/dashboards")
-async def metabase_list_dashboards():
+@metabase_router.post("/dashboards")
+async def metabase_list_dashboards(body: dict = None):
     """List all Metabase dashboards."""
-    client = _get_metabase_client()
+    overrides = _extract_browser_overrides(body) if body else {}
+    client = _get_metabase_client(overrides)
     return {"dashboards": await client.list_dashboards()}
 
 
-@metabase_router.get("/dashboards/{dashboard_id}/cards")
-async def metabase_dashboard_cards(dashboard_id: int):
+@metabase_router.post("/dashboards/{dashboard_id}/cards")
+async def metabase_dashboard_cards(dashboard_id: int, body: dict = None):
     """Get cards from a Metabase dashboard (for Focus Mode context)."""
-    client = _get_metabase_client()
+    overrides = _extract_browser_overrides(body) if body else {}
+    client = _get_metabase_client(overrides)
     cards = await client.get_dashboard_cards(dashboard_id)
     meta = await client.get_dashboard_meta(dashboard_id)
     tables = list({t for c in cards for t in c.get("tables", [])})
@@ -1041,9 +1043,10 @@ async def metabase_add_to_dashboard(body: dict):
     return result
 
 
-@metabase_router.get("/collections")
-async def metabase_list_collections():
+@metabase_router.post("/collections")
+async def metabase_list_collections(body: dict = None):
     """List Metabase collections."""
-    client = _get_metabase_client()
+    overrides = _extract_browser_overrides(body) if body else {}
+    client = _get_metabase_client(overrides)
     return {"collections": await client.list_collections()}
 
