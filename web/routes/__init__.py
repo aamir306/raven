@@ -51,6 +51,7 @@ class QueryResponse(BaseModel):
     cached: bool = False
     is_followup: bool = False
     original_question: str = ""
+    verified: bool = False
 
 
 class FeedbackRequest(BaseModel):
