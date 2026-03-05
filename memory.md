@@ -341,14 +341,14 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 
 ## Current Project Status (March 5, 2026)
 
-**HEAD:** `0600663` (Phase 6) on `main`, pushed to GitHub
+**HEAD:** `4eaed6a` (Phase 5.2) on `main`, pushed to GitHub
 
 | Phase | Status | Commit |
 |---|---|---|
 | Phase 1 (Weeks 1-3) | ✅ Complete | 63fbe72 |
 | Phase 2 (Weeks 4-5) | ✅ Complete | fd548cf |
 | Phase 3 (Weeks 6-8) | ✅ Complete | 152f3f8 |
-| Phase 5 (Weeks 13-16) | ✅ Complete | b43c4f7, 17129cc |
+| Phase 5 (Weeks 13-16) | ✅ Complete | b43c4f7, 17129cc, 4eaed6a |
 | Phase 6 (Weeks 17-20) | 🟡 Tooling done, data population pending | 0600663 |
 | Phase 4 (Weeks 9-12) | ⬜ Not started | — |
 
@@ -373,6 +373,7 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 
 | Commit | Message |
 |---|---|
+| 4eaed6a | Phase 5.2: ThinkingTab, action bar, tables-used, Excel/filter, Documents/Glossary/Admin pages |
 | 17129cc | Phase 5.1: Multi-turn sessions, help modal, search, loading progress |
 | 0600663 | Phase 6: Prometheus metrics, data quality tooling, Grafana dashboard |
 | b43c4f7 | Phase 5: Full UI redesign + open-source sanitization |
@@ -442,6 +443,39 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 - **web/ui/src/App.js** — Multi-turn conversation_id wiring to backend, session message persistence (localStorage save/load/delete/switch), "What can I ask?" help modal, session history search filter, 8-stage loading progress animation, session delete, version bumped to v0.4
 - **web/ui/src/App.css** — Sidebar search styles, session flex layout with delete button, loading progress bar (3px bar with stage text), help modal overlay/styles, enhanced mobile-responsive CSS (tab wrapping, data table scroll, SQL read-only on mobile, candidate grid stack)
 - **web/routes/__init__.py** — Added `verified: bool = False` to QueryResponse model (UI badge was already checking this field)
+
+## Phase 5.2 Changes (commit 4eaed6a)
+
+### New Files
+- **web/ui/src/components/tabs/ThinkingTab.js** — 8-stage pipeline trace with collapsible details (router classification, context keywords/entities/glossary, selected tables as pills, probe evidence, SQL candidates/winner, validation errors/fixes, execution rows/chart), per-stage timing, skipped stage display for SIMPLE queries, raw debug JSON viewer
+- **web/ui/src/components/pages/DocumentUpload.js** — Drag-drop file upload page (POST /api/admin/upload-doc), document list with chunk count + delete
+- **web/ui/src/components/pages/GlossaryEditor.js** — Full CRUD glossary editor (search, add/edit form with term/definition/SQL fragment/synonyms/tables, delete), calls /api/admin/glossary endpoints, demo data fallback
+- **web/ui/src/components/pages/AdminDashboard.js** — 3-tab admin dashboard (Overview: 6 stat cards + top questions, Costs: 3 stat cards, Failures: error list), calls /api/stats, demo data fallback
+
+### Modified Files
+- **web/ui/src/App.js** — Lazy imports for 3 page components, `activeTool` state for sidebar tool navigation (Documents/Glossary/Admin), sidebar tools section with 3 buttons (Admin restricted to engineer persona), Suspense-wrapped tool page rendering, conditional chat/input visibility, `'thinking'` added to analyst+engineer PERSONAS visibleTabs
+- **web/ui/src/App.css** — ~200 lines: tables-used pills, action bar, thinking tab (stages/header/body/details/raw), sidebar tools, page panels, upload zone, doc list, glossary (toolbar/search/form/list), admin (tabs/stats grid/stat cards/subsections/list), shared buttons (btn-icon-sm, btn-primary-sm, btn-secondary-sm), empty state, mobile responsive additions
+- **web/ui/src/components/ResponseCard.js** — ThinkingTab integration + action bar (Copy SQL, Download CSV, Share Link) between QueryRefinement and FeedbackBar, `copiedSQL` state with clipboard fallback
+- **web/ui/src/components/tabs/SummaryTab.js** — TablesUsed sub-component displaying `debug.selected_tables` as pills with Database icon
+- **web/ui/src/components/tabs/DataTab.js** — Per-column text filter dropdowns (antd filterDropdown), Excel export via XML Spreadsheet format (no library), triggerDownload helper
+- **web/routes/__init__.py** — Glossary CRUD endpoints (GET/POST/PUT/DELETE /api/admin/glossary) with JSON file persistence at config/glossary_terms.json
+
+### UI Spec Features Implemented (from raven-ui-specification.md)
+- ✅ ThinkingTab (chain-of-thought pipeline trace)
+- ✅ Action bar (Copy SQL, CSV download, Share)
+- ✅ Tables used display in summary
+- ✅ Excel download + column filtering
+- ✅ Document upload page
+- ✅ Glossary editor page
+- ✅ Admin dashboard page
+- ✅ Sidebar tools navigation
+
+### UI Spec Features Deferred (future work)
+- SSE streaming (real backend → frontend stage events)
+- Phoenix iframe embedding + JWT auth
+- Save to Metabase from SQL tab
+- Voice input
+- Embeddable npm package `@raven-sql/embed`
 
 ---
 
