@@ -319,26 +319,26 @@ class TestGlossary:
                 {
                     "name": "fact_orders",
                     "description": "Central order table",
+                    "synonyms": ["orders", "purchases"],
                     "dimensions": [
-                        {"name": "status", "description": "Order status", "expr": "status"},
+                        {"name": "status", "description": "Order status", "values": ["active", "cancelled"]},
                     ],
-                    "measures": [
-                        {"name": "total_revenue", "description": "Sum of revenue", "expr": "SUM(amount)", "agg": "sum"},
+                    "time_dimensions": [
+                        {"name": "order_date", "description": "Order creation date"},
                     ],
-                    "relationships": [
-                        {"target": "dim_customer", "join_key": "customer_id", "type": "many_to_one"},
+                    "metrics": [
+                        {"name": "total_revenue", "description": "Sum of revenue", "sql": "SUM(amount)"},
                     ],
                 }
             ],
             "business_rules": [
-                {"name": "active_customer", "definition": "Customer with order in last 90 days", "sql": "last_order_date >= CURRENT_DATE - INTERVAL '90' DAY"},
+                {"term": "active_customer", "definition": "Customer with order in last 90 days", "sql_fragment": "last_order_date >= CURRENT_DATE - INTERVAL '90' DAY", "synonyms": ["recent customer"]},
             ],
             "verified_queries": [
                 {"question": "Total revenue last month", "sql": "SELECT SUM(amount) FROM gold.fact_orders WHERE order_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1' MONTH"},
             ],
-            "synonyms": [
-                {"alias": "rev", "canonical": "revenue"},
-                {"alias": "cust", "canonical": "customer"},
+            "relationships": [
+                {"left_table": "fact_orders", "right_table": "dim_customer", "join_columns": {"left": "customer_id", "right": "_id"}, "cast_required": False},
             ],
         }
 
@@ -347,7 +347,8 @@ class TestGlossary:
 
         assert "table" in types
         assert "dimension" in types
-        assert "measure" in types
+        assert "time_dimension" in types
+        assert "metric" in types
         assert "relationship" in types
         assert "business_rule" in types
         assert "verified_query" in types

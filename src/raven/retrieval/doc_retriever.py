@@ -50,7 +50,7 @@ class DocRetriever:
                 ...
             ]
         """
-        raw_results = self.pgvector.search(
+        raw_results = await self.pgvector.async_search(
             table_name=DOC_TABLE,
             query_embedding=question_embedding,
             top_k=top_k,

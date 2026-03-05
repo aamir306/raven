@@ -1,90 +1,400 @@
-# RAVEN — config/semantic_model.yaml
-# Snowflake Cortex Analyst-style semantic model
-# This is the business glossary — the most impactful manual effort.
+# Semantic Model for PW (Physics Wallah) CDP Platform
+# ====================================================
+# Snowflake Cortex Analyst-style YAML format.
+# Defines dimensions, metrics, business rules, synonyms, verified queries,
+# and table relationships for the text-to-SQL pipeline.
 #
-# Start with your most important tables and expand based on failure analysis.
-# Target: 10 key tables, 30+ business rules, 20+ verified queries.
+# Used by: GlossaryRetriever (Stage 2.4), ColumnPruner (Stage 3.4),
+#          SQL generators (Stage 5) for business term resolution.
 
-name: raven_analytics
-description: "Semantic model for RAVEN text-to-SQL pipeline"
+name: pw_cdp_semantic_model
+version: "1.0.0"
+description: >
+  Semantic model for Physics Wallah (PW) Customer Data Platform.
+  PW is an ed-tech company offering online and offline coaching for
+  competitive exams (NEET, JEE, UPSC, SSC, etc.) across India.
+
+# ═══════════════════════════════════════════════════════════════════════
+# KEY TABLES — dimensions + metrics for the most-queried tables
+# ═══════════════════════════════════════════════════════════════════════
 
 tables:
-  # ── Example table definitions ────────────────────────────────────────
-  # Uncomment and adapt these to your actual tables.
-  #
-  # - name: gold.daily_active_users
-  #   description: "Daily active user counts by segment and platform"
-  #   base_table:
-  #     catalog: cdp
-  #     schema: gold_dbt
-  #     table: daily_active_users
-  #   dimensions:
-  #     - name: segment
-  #       synonyms: ["user type", "plan", "tier", "subscription type"]
-  #       description: "User subscription segment"
-  #       expr: segment
-  #       data_type: VARCHAR
-  #       is_enum: true
-  #       enum_values: ["free", "premium", "enterprise"]
-  #     - name: platform
-  #       synonyms: ["device", "app"]
-  #       description: "Platform where activity occurred"
-  #       expr: platform
-  #       data_type: VARCHAR
-  #       is_enum: true
-  #   time_dimensions:
-  #     - name: date
-  #       synonyms: ["day", "ds"]
-  #       description: "Activity date"
-  #       expr: ds
-  #       data_type: DATE
-  #       is_partition: true
-  #   facts:
-  #     - name: active_users
-  #       synonyms: ["DAU", "daily active users", "active user count"]
-  #       description: "Count of distinct users with at least one session"
-  #       expr: active_user_count
-  #       data_type: BIGINT
-  #   metrics:
-  #     - name: dau
-  #       description: "Daily Active Users"
-  #       expr: "SUM(active_user_count)"
-  #       synonyms: ["DAU", "daily actives"]
 
-relationships: []
-  # - name: users_to_orders
-  #   left_table: gold.daily_active_users
-  #   right_table: gold.orders
-  #   join_type: LEFT JOIN
-  #   relationship_columns:
-  #     - left_column: user_id
-  #       right_column: user_id
-  #   note: "Not all active users have orders"
+  - name: cdp.cdp_revenue.gold_batches
+    description: >
+      Master table of all batches (courses) offered by PW. A batch is the
+      core product unit — a structured course for a specific exam/subject.
+    synonyms: [batches, courses, programs, offerings, products]
+    dimensions:
+      - name: _id
+        description: Unique batch identifier (MongoDB ObjectId)
+      - name: name
+        description: Batch display name (e.g. "Lakshya NEET 2025")
+      - name: status
+        description: "Batch lifecycle status"
+        values: [active, inactive, draft, archived]
+      - name: type
+        description: "Batch type"
+        values: [online, offline, hybrid]
+      - name: exam
+        description: Target exam category
+      - name: batchcode
+        description: Short code identifier for the batch
+    time_dimensions:
+      - name: startdate
+        description: Batch start date
+      - name: enddate
+        description: Batch end date
+      - name: createdat
+        description: Record creation timestamp
+    metrics:
+      - name: batch_count
+        description: Total number of batches
+        sql: "COUNT(DISTINCT _id)"
+      - name: active_batch_count
+        description: Number of currently active batches
+        sql: "COUNT(DISTINCT _id) FILTER (WHERE status = 'active')"
 
-business_rules: []
-  # - term: "active user"
-  #   definition: "User with at least one session in the last 30 days"
-  #   sql_fragment: "WHERE last_activity > CURRENT_DATE - INTERVAL '30' DAY"
-  #   synonyms: ["active customer", "engaged user", "live user"]
-  #
-  # - term: "churn"
-  #   definition: "Previously active user with no activity for 90+ days"
-  #   sql_fragment: "WHERE last_activity < CURRENT_DATE - INTERVAL '90' DAY AND was_active = true"
-  #   synonyms: ["churned user", "lost user", "inactive user"]
-  #
-  # - term: "revenue"
-  #   definition: "Total payment amount for completed/paid orders"
-  #   sql_fragment: "SUM(amount) WHERE status IN ('completed', 'paid')"
-  #   synonyms: ["sales", "GMV", "earnings", "income"]
+  - name: cdp.central.gold_batch_rooms
+    description: >
+      Batch rooms represent user enrollment containers. Each batch has one
+      or more rooms with capacity limits. student count = usercount.
+    synonyms: [batch rooms, enrollments, rooms, capacity]
+    dimensions:
+      - name: _id
+        description: Room identifier
+      - name: batchid
+        description: FK to gold_batches._id
+      - name: name
+        description: Room display name
+      - name: status
+        description: "Room status"
+        values: [active, inactive]
+    metrics:
+      - name: enrolled_students
+        description: Total enrolled students across all rooms
+        sql: "SUM(usercount)"
+      - name: room_capacity
+        description: Total capacity across all rooms
+        sql: "SUM(userlimit)"
+      - name: fill_rate
+        description: Enrollment fill rate as a percentage
+        sql: "ROUND(TRY_CAST(SUM(usercount) AS DOUBLE) / NULLIF(SUM(userlimit), 0) * 100, 2)"
 
-verified_queries: []
-  # - name: daily_active_users_by_segment
-  #   question: "How many active users by segment yesterday?"
-  #   sql: |
-  #     SELECT segment, COUNT(DISTINCT user_id) as active_users
-  #     FROM cdp.gold_dbt.daily_active_users
-  #     WHERE ds = CURRENT_DATE - INTERVAL '1' DAY
-  #       AND is_deleted = false
-  #     GROUP BY segment
-  #     ORDER BY active_users DESC
-  #   use_as_onboarding: true
+  - name: cdp.cdp_revenue.gold_orders
+    description: >
+      All purchase orders from students. Each order represents a payment
+      transaction for a batch/course. Revenue source of truth.
+    synonyms: [orders, purchases, transactions, payments, revenue]
+    dimensions:
+      - name: _id
+        description: Order identifier
+      - name: userid
+        description: Student who placed the order
+      - name: status
+        description: "Order status"
+      - name: orderbypage
+        description: Source page where order was placed
+    time_dimensions:
+      - name: createdat
+        description: Order creation timestamp (partition column)
+    metrics:
+      - name: total_revenue
+        description: Total revenue collected (price after discounts)
+        sql: "SUM(price)"
+      - name: order_count
+        description: Number of orders
+        sql: "COUNT(DISTINCT _id)"
+      - name: average_order_value
+        description: Average order value
+        sql: "AVG(price)"
+      - name: total_discount
+        description: Total discounts applied
+        sql: "SUM(COALESCE(discount, 0) + COALESCE(coupondiscount, 0))"
+
+  - name: cdp.mview.gold_dbt_lecture_batch_info
+    description: >
+      Materialized view combining lecture and batch information. Primary
+      source for lecture analytics — counts, schedules, faculty assignments.
+    synonyms: [lectures, classes, sessions, teaching, faculty lectures]
+    dimensions:
+      - name: batch_id
+        description: Batch FK
+      - name: batch
+        description: Batch display name
+      - name: batch_status
+        description: "Status of the batch"
+        values: [active, inactive]
+      - name: batch_type
+        description: Online/offline batch type
+      - name: language
+        description: Teaching language
+      - name: exam
+        description: Target exam
+      - name: subexam
+        description: Sub-exam category
+      - name: new_exam_category
+        description: Standardized exam category
+    time_dimensions:
+      - name: class_start_date
+        description: When classes start
+      - name: class_end_date
+        description: When classes end
+      - name: access_end_date
+        description: When access expires
+    metrics:
+      - name: lecture_count
+        description: Number of lectures
+        sql: "COUNT(*)"
+      - name: active_lecture_batches
+        description: Batches with active lectures
+        sql: "COUNT(DISTINCT batch_id) FILTER (WHERE batch_status = 'active')"
+
+  - name: cdp.offline.gold_offline_assigned_batch
+    description: >
+      Tracks student-to-batch assignments for offline centers. Used for
+      offline enrollment tracking and center capacity analysis.
+    synonyms: [offline batches, center assignments, offline enrollment]
+    dimensions:
+      - name: assign_batch_id
+        description: Assignment identifier
+      - name: student_id
+        description: Student FK
+      - name: center
+        description: Offline center name
+      - name: batch
+        description: Batch name
+      - name: is_active
+        description: Whether assignment is currently active
+    metrics:
+      - name: offline_students
+        description: Number of offline students
+        sql: "COUNT(DISTINCT student_id)"
+      - name: active_offline_assignments
+        description: Active offline assignments
+        sql: "COUNT(*) FILTER (WHERE is_active = true)"
+
+  - name: cdp.lms.gold_payments
+    description: >
+      LMS payment records for course purchases. Tracks payment gateway
+      transactions, amounts, and course-student mappings.
+    synonyms: [lms payments, course payments, lms revenue]
+    dimensions:
+      - name: _id
+        description: Payment identifier
+      - name: userid
+        description: Student FK
+      - name: courseid
+        description: Course FK
+      - name: gateway
+        description: Payment gateway used
+      - name: paid
+        description: Whether payment was completed (boolean)
+    time_dimensions:
+      - name: createdat
+        description: Payment timestamp
+    metrics:
+      - name: lms_revenue
+        description: Total LMS revenue
+        sql: "SUM(amount)"
+      - name: paid_count
+        description: Number of successful payments
+        sql: "COUNT(*) FILTER (WHERE paid = true)"
+
+# ═══════════════════════════════════════════════════════════════════════
+# BUSINESS RULES — term definitions, SQL fragments, synonyms
+# ═══════════════════════════════════════════════════════════════════════
+
+business_rules:
+
+  - term: active_batch
+    definition: >
+      A batch with status = 'active'. Inactive/draft/archived batches
+      should be excluded unless explicitly requested.
+    sql_fragment: "status = 'active'"
+    synonyms: [current batch, live batch, running batch]
+
+  - term: revenue
+    definition: >
+      Total revenue = SUM(price) from gold_orders. The 'price' column
+      represents the net amount paid after all discounts. Do NOT use
+      'wallet', 'cashback', 'discount' columns — those are breakdowns.
+    sql_fragment: "SUM(price)"
+    synonyms: [income, sales, earnings, total sales, money collected]
+
+  - term: student_count
+    definition: >
+      Number of enrolled students. For online batches: SUM(usercount)
+      from gold_batch_rooms. For offline: COUNT(DISTINCT student_id)
+      from gold_offline_assigned_batch WHERE is_active = true.
+    sql_fragment: "SUM(usercount)"
+    synonyms: [enrollment, students enrolled, learners, users]
+
+  - term: faculty
+    definition: >
+      Teachers/instructors who conduct lectures. Faculty information
+      is typically found in lecture-related tables. Not stored in a
+      separate faculty master table in the current schema.
+    sql_fragment: ""
+    synonyms: [teacher, instructor, educator, professor, tutor]
+
+  - term: lecture
+    definition: >
+      A single class session or teaching event. Lectures are associated
+      with batches and faculty. Use gold_dbt_lecture_batch_info for
+      lecture analytics.
+    sql_fragment: ""
+    synonyms: [class, session, teaching session, video lecture]
+
+  - term: exam_category
+    definition: >
+      The target competitive exam. Main categories: NEET (medical),
+      JEE/IIT-JEE (engineering), UPSC (civil services), SSC (staff
+      selection), Banking, GATE, CUET, and state-specific exams.
+    sql_fragment: ""
+    synonyms: [exam, test, competition, entrance exam]
+
+  - term: cohort
+    definition: >
+      A group of students segmented by a specific attribute, typically
+      their enrollment period or exam target year (e.g., "NEET 2025 cohort").
+    sql_fragment: ""
+    synonyms: [batch year, enrollment group, student group]
+
+  - term: offline_center
+    definition: >
+      Physical classroom locations where offline coaching happens.
+      Tracked in gold_offline_centers_data_tmp. Each center is a
+      branch with branch_id.
+    sql_fragment: ""
+    synonyms: [center, branch, campus, classroom, physical center]
+
+  - term: fill_rate
+    definition: >
+      Percentage of batch room capacity filled by enrolled students.
+      fill_rate = usercount / userlimit * 100 from gold_batch_rooms.
+    sql_fragment: "ROUND(TRY_CAST(usercount AS DOUBLE) / NULLIF(userlimit, 0) * 100, 2)"
+    synonyms: [occupancy, capacity utilization, enrollment rate]
+
+  - term: churn
+    definition: >
+      Students who had an active batch assignment and later became
+      inactive. Measured via is_active = false in assignment tables.
+    sql_fragment: ""
+    synonyms: [dropout, attrition, student loss, cancellation]
+
+  - term: average_order_value
+    definition: >
+      Average revenue per order = AVG(price) from gold_orders.
+      Also known as AOV.
+    sql_fragment: "AVG(price)"
+    synonyms: [AOV, avg order, average purchase, average transaction]
+
+  - term: completion_rate
+    definition: >
+      Percentage of content completed by students. Tracked in
+      LMS coursesubmissions table. Not directly in batch tables.
+    sql_fragment: ""
+    synonyms: [progress, course completion, content completion]
+
+# ═══════════════════════════════════════════════════════════════════════
+# VERIFIED QUERIES — gold-standard Q-SQL pairs
+# ═══════════════════════════════════════════════════════════════════════
+
+verified_queries:
+
+  - question: "How many active batches are there?"
+    sql: >
+      SELECT COUNT(DISTINCT _id) AS active_batch_count
+      FROM cdp.cdp_revenue.gold_batches
+      WHERE status = 'active'
+    use_as_onboarding: true
+    notes: Use gold_batches for the canonical batch count.
+
+  - question: "What is the total revenue?"
+    sql: >
+      SELECT SUM(price) AS total_revenue
+      FROM cdp.cdp_revenue.gold_orders
+    use_as_onboarding: true
+    notes: price column has the net amount after discounts.
+
+  - question: "Top 10 batches by student enrollment"
+    sql: >
+      SELECT b.name AS batch_name,
+             SUM(br.usercount) AS student_count
+      FROM cdp.cdp_revenue.gold_batches b
+      JOIN cdp.central.gold_batch_rooms br ON TRY_CAST(b._id AS VARCHAR) = TRY_CAST(br.batchid AS VARCHAR)
+      WHERE b.status = 'active' AND br.status = 'active'
+      GROUP BY b.name
+      ORDER BY student_count DESC
+      LIMIT 10
+    use_as_onboarding: true
+    notes: >
+      Join gold_batches with gold_batch_rooms on _id = batchid.
+      Use TRY_CAST to handle mixed types. Both tables filter on status = 'active'.
+
+  - question: "Average number of lectures per active batch"
+    sql: >
+      SELECT AVG(lecture_count) AS avg_lectures_per_batch
+      FROM (
+        SELECT batch_id, COUNT(*) AS lecture_count
+        FROM cdp.mview.gold_dbt_lecture_batch_info
+        WHERE batch_status = 'active'
+        GROUP BY batch_id
+      ) batch_lectures
+    use_as_onboarding: false
+    notes: Use gold_dbt_lecture_batch_info, group by batch_id.
+
+  - question: "Revenue by exam category this month"
+    sql: >
+      SELECT b.exam AS exam_category,
+             SUM(o.price) AS revenue
+      FROM cdp.cdp_revenue.gold_orders o
+      JOIN cdp.cdp_revenue.gold_batches b
+        ON TRY_CAST(o.batchid AS VARCHAR) = TRY_CAST(b._id AS VARCHAR)
+      WHERE o.createdat >= DATE_TRUNC('month', CURRENT_DATE)
+      GROUP BY b.exam
+      ORDER BY revenue DESC
+    use_as_onboarding: false
+    notes: Join orders to batches to get exam category. Filter by current month.
+
+# ═══════════════════════════════════════════════════════════════════════
+# RELATIONSHIPS — explicit join paths between key tables
+# ═══════════════════════════════════════════════════════════════════════
+
+relationships:
+
+  - left_table: cdp.cdp_revenue.gold_batches
+    right_table: cdp.central.gold_batch_rooms
+    join_columns:
+      left: _id
+      right: batchid
+    cast_required: true
+    cast_type: VARCHAR
+    notes: Both columns may be ObjectId strings, use TRY_CAST(... AS VARCHAR)
+
+  - left_table: cdp.cdp_revenue.gold_batches
+    right_table: cdp.cdp_revenue.gold_orders
+    join_columns:
+      left: _id
+      right: batchid
+    cast_required: true
+    cast_type: VARCHAR
+    notes: Orders reference batches via batchid
+
+  - left_table: cdp.cdp_revenue.gold_batches
+    right_table: cdp.mview.gold_dbt_lecture_batch_info
+    join_columns:
+      left: _id
+      right: batch_id
+    cast_required: true
+    cast_type: VARCHAR
+    notes: Lecture info references batches via batch_id
+
+  - left_table: cdp.lms.gold_courses
+    right_table: cdp.lms.gold_payments
+    join_columns:
+      left: _id
+      right: courseid
+    cast_required: false
+    notes: LMS payments reference courses directly

@@ -100,7 +100,7 @@ class ColumnFilter:
         Top-200 by embedding similarity to the question.
         """
         question_embedding = await self.openai.embed(question)
-        results = self.pgvector.search(
+        results = await self.pgvector.async_search(
             table_name="schema_embeddings",
             query_embedding=question_embedding,
             top_k=200,

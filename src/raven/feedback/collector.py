@@ -1,19 +1,21 @@
 """
 Stage 8: Feedback Collector
 ============================
-- Log every query (question, SQL, difficulty, confidence, timing)
+- Log every query (question, SQL, difficulty, confidence, timing) → query_log table
 - Accept thumbs-up / thumbs-down from users
-- Thumbs-up → auto-add to few-shot index
-- Thumbs-down → queue for correction review
+- Thumbs-up → auto-embed (question, SQL) and add to few-shot index
+- Thumbs-down → queue for correction review with optional corrected SQL
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from ..connectors.openai_client import OpenAIClient
 from ..connectors.pgvector_store import PgVectorStore
 
 logger = logging.getLogger(__name__)
@@ -22,8 +24,9 @@ logger = logging.getLogger(__name__)
 class FeedbackCollector:
     """Collect and store user feedback for continuous improvement."""
 
-    def __init__(self, pgvector: PgVectorStore):
+    def __init__(self, pgvector: PgVectorStore, openai: OpenAIClient | None = None):
         self.pgvector = pgvector
+        self.openai = openai  # Needed for embedding thumbs-up pairs
 
     async def log_query(
         self,
@@ -34,24 +37,24 @@ class FeedbackCollector:
         row_count: int,
         conversation_id: str | None = None,
     ) -> str:
-        """Log a pipeline query execution. Returns query_id."""
+        """Log a pipeline query execution to query_log table. Returns query_id."""
         query_id = str(uuid.uuid4())
 
-        metadata = {
-            "query_id": query_id,
-            "question": question,
-            "sql": sql,
-            "difficulty": difficulty,
-            "confidence": confidence,
-            "row_count": row_count,
-            "conversation_id": conversation_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "feedback": None,  # Set later via submit_feedback
-        }
+        try:
+            await asyncio.to_thread(
+                self.pgvector.log_query,
+                query_id=query_id,
+                question=question,
+                sql_text=sql,
+                difficulty=difficulty,
+                confidence=confidence,
+                row_count=row_count,
+                conversation_id=conversation_id,
+            )
+            logger.debug("Logged query %s: %s", query_id, question[:60])
+        except Exception:
+            logger.warning("Failed to log query %s (non-critical)", query_id, exc_info=True)
 
-        # Store in pgvector question_embeddings for future retrieval
-        # (Embedding will be computed during the feedback ingestion pipeline)
-        logger.debug("Logged query %s: %s", query_id, question[:60])
         return query_id
 
     async def submit_feedback(
@@ -64,16 +67,31 @@ class FeedbackCollector:
         """
         Process user feedback.
 
-        - thumbs_up: Add (question, SQL) to few-shot index for retrieval.
-        - thumbs_down: Queue for human review with optional correction.
+        - thumbs_up: Auto-embed (question, SQL) and add to few-shot index.
+        - thumbs_down: Store correction for human review.
         """
         result = {"query_id": query_id, "feedback": feedback, "action": ""}
 
+        # Update query_log with feedback
+        try:
+            updated = await asyncio.to_thread(
+                self.pgvector.update_feedback,
+                query_id=query_id,
+                feedback=feedback,
+                correction_sql=correction_sql,
+                correction_notes=correction_notes,
+            )
+            if not updated:
+                result["action"] = "query_not_found"
+                return result
+        except Exception:
+            logger.warning("Failed to update feedback for %s", query_id, exc_info=True)
+            result["action"] = "update_failed"
+            return result
+
         if feedback == "thumbs_up":
             # Auto-add to few-shot index
-            result["action"] = "added_to_fewshot_index"
-            logger.info("Thumbs up for query %s — adding to few-shot index", query_id)
-            # Embedding + insertion happens in batch processing pipeline
+            result["action"] = await self._add_to_fewshot(query_id)
 
         elif feedback == "thumbs_down":
             if correction_sql:
@@ -88,10 +106,55 @@ class FeedbackCollector:
 
         return result
 
+    async def _add_to_fewshot(self, query_id: str) -> str:
+        """Embed the (question, SQL) pair and insert into question_embeddings."""
+        if not self.openai:
+            logger.warning("Cannot add to few-shot index — no OpenAI client configured")
+            return "skipped_no_openai"
+
+        try:
+            # Fetch the original query
+            query = await asyncio.to_thread(self.pgvector.get_query, query_id)
+            if not query:
+                return "query_not_found"
+
+            question = query["question"]
+            sql_text = query.get("sql_text", "")
+
+            # Embed the question
+            embedding = await self.openai.embed(question)
+
+            # Insert into question_embeddings with source=feedback
+            await asyncio.to_thread(
+                self.pgvector.insert,
+                table="question_embeddings",
+                text=question,
+                embedding=embedding,
+                question_text=question,
+                sql_query=sql_text,
+                source="feedback_thumbs_up",
+                metadata={
+                    "query_id": query_id,
+                    "source": "feedback",
+                    "difficulty": query.get("difficulty", ""),
+                },
+            )
+            logger.info("Added thumbs-up query %s to few-shot index", query_id)
+            return "added_to_fewshot_index"
+
+        except Exception:
+            logger.warning("Failed to add query %s to few-shot index", query_id, exc_info=True)
+            return "fewshot_insert_failed"
+
     async def get_pending_corrections(self, limit: int = 50) -> list[dict]:
         """Get queries flagged for correction review."""
-        # Will be implemented when feedback storage is built out
-        return []
+        try:
+            return await asyncio.to_thread(
+                self.pgvector.get_pending_corrections, limit
+            )
+        except Exception:
+            logger.warning("Failed to get pending corrections", exc_info=True)
+            return []
 
     async def approve_correction(
         self,
@@ -99,9 +162,40 @@ class FeedbackCollector:
         corrected_sql: str,
     ) -> dict:
         """
-        Approve a correction and add to few-shot index.
-
-        This replaces the original SQL with corrected version in the index.
+        Approve a correction: update the query_log and add corrected pair to few-shot index.
         """
-        logger.info("Correction approved for query %s", query_id)
-        return {"query_id": query_id, "action": "correction_approved"}
+        try:
+            # Update feedback status
+            await asyncio.to_thread(
+                self.pgvector.update_feedback,
+                query_id=query_id,
+                feedback="correction_approved",
+                correction_sql=corrected_sql,
+            )
+
+            # Fetch the original query for the question text
+            query = await asyncio.to_thread(self.pgvector.get_query, query_id)
+            if query and self.openai:
+                question = query["question"]
+                embedding = await self.openai.embed(question)
+                await asyncio.to_thread(
+                    self.pgvector.insert,
+                    table="question_embeddings",
+                    text=question,
+                    embedding=embedding,
+                    question_text=question,
+                    sql_query=corrected_sql,
+                    source="feedback_correction",
+                    metadata={
+                        "query_id": query_id,
+                        "source": "correction",
+                        "original_sql": query.get("sql_text", ""),
+                    },
+                )
+
+            logger.info("Correction approved for query %s", query_id)
+            return {"query_id": query_id, "action": "correction_approved"}
+
+        except Exception:
+            logger.warning("Failed to approve correction for %s", query_id, exc_info=True)
+            return {"query_id": query_id, "action": "approval_failed"}

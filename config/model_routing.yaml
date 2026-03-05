@@ -5,113 +5,136 @@
 # Direct OpenAI: use canonical names (e.g. "gpt-4o", "gpt-4o-mini")
 #
 # Current setup: Azure OpenAI with a single "gpt4o" deployment.
-# When a "gpt4o-mini" deployment is created, update stages below.
+# TODO: Create a "gpt4o-mini" deployment on Azure ($0.15/Mtok vs $2.50/Mtok)
+#       then switch all stages marked cost_tier: light → model: gpt4o-mini
+#       Expected savings: ~$0.28/query → ~$0.06/query (78% reduction)
+#
+# Cost tiers:
+#   light  — small input/output, classification, extraction, rewriting
+#            → safe for gpt4o-mini (16x cheaper, similar quality)
+#   heavy  — complex reasoning, SQL generation, multi-step
+#            → requires gpt4o for accuracy
 #
 # Stage names match the stage_name argument passed to OpenAIClient.complete().
 
 stages:
-  # ── Stage 1: Router ─────────────────────────────────────────────────
+  # ── Stage 1: Router (LIGHT) ────────────────────────────────────────
+  # Simple classification: SQL vs chitchat. ~50 tokens output.
   router:
-    model: gpt4o
+    model: gpt4o        # → gpt4o-mini when available
     max_tokens: 50
     temperature: 0
-    cost_per_call: 0.001
+    cost_tier: light
 
-  # ── Stage 2: Information Retrieval ──────────────────────────────────
+  # ── Multi-turn conversation (LIGHT) ─────────────────────────────────
+  # Rewrites follow-up questions to be self-contained. ~200 tokens output.
+  conversation_rewrite:
+    model: gpt4o        # → gpt4o-mini when available
+    max_tokens: 200
+    temperature: 0
+    cost_tier: light
+
+  # ── Stage 2: Information Retrieval (LIGHT) ──────────────────────────
+  # Keyword extraction from natural language. ~300 tokens output.
   ir_keyword_extract:
-    model: gpt4o
+    model: gpt4o        # → gpt4o-mini when available
     max_tokens: 300
     temperature: 0
-    cost_per_call: 0.001
+    cost_tier: light
 
-  # ── Stage 3: Schema Selection ───────────────────────────────────────
+  # ── Stage 3: Schema Selection (HEAVY) ───────────────────────────────
+  # These stages reason over schema structure — need gpt4o.
   ss_column_filter:
     model: gpt4o
     max_tokens: 1000
     temperature: 0
-    cost_per_call: 0.001
+    cost_tier: heavy
 
   ss_table_select:
     model: gpt4o
     max_tokens: 800
     temperature: 0
-    cost_per_call: 0.002
+    cost_tier: heavy
 
   ss_column_prune:
     model: gpt4o
     max_tokens: 600
     temperature: 0
-    cost_per_call: 0.001
+    cost_tier: heavy
 
-  # ── Stage 4: Probes ────────────────────────────────────────────────
+  # ── Stage 4: Probes (HEAVY) ────────────────────────────────────────
+  # Decomposition and probe generation require reasoning.
   probe_decompose:
     model: gpt4o
     max_tokens: 500
     temperature: 0
-    cost_per_call: 0.002
+    cost_tier: heavy
 
   probe_generate:
     model: gpt4o
     max_tokens: 500
     temperature: 0
-    cost_per_call: 0.002
+    cost_tier: heavy
 
-  # ── Stage 5: SQL Generation ─────────────────────────────────────────
+  # ── Stage 5: SQL Generation (HEAVY) ─────────────────────────────────
+  # Core SQL generation — highest accuracy requirement.
   gen_simple:
     model: gpt4o
     max_tokens: 2000
     temperature: 0.0
-    cost_per_call: 0.003
+    cost_tier: heavy
 
   gen_candidate_a:
     model: gpt4o
     max_tokens: 4000
     temperature: 0.3
-    cost_per_call: 0.020
+    cost_tier: heavy
 
   gen_candidate_b:
     model: gpt4o
     max_tokens: 4000
     temperature: 0.3
-    cost_per_call: 0.020
+    cost_tier: heavy
 
   gen_candidate_c:
     model: gpt4o
     max_tokens: 4000
     temperature: 0.3
-    cost_per_call: 0.020
+    cost_tier: heavy
 
   gen_revision:
     model: gpt4o
     max_tokens: 4000
     temperature: 0
-    cost_per_call: 0.020
+    cost_tier: heavy
 
-  # ── Stage 6: Validation ────────────────────────────────────────────
+  # ── Stage 6: Validation (HEAVY) ────────────────────────────────────
+  # Pairwise comparison + error taxonomy need strong reasoning.
   val_pairwise:
     model: gpt4o
     max_tokens: 200
     temperature: 0
-    cost_per_call: 0.003
+    cost_tier: heavy
 
   val_taxonomy:
     model: gpt4o
     max_tokens: 500
     temperature: 0
-    cost_per_call: 0.003
+    cost_tier: heavy
 
-  # ── Stage 7: Output ────────────────────────────────────────────────
+  # ── Stage 7: Output (LIGHT) ────────────────────────────────────────
+  # Chart detection and summary generation are lightweight.
   out_chart:
-    model: gpt4o
+    model: gpt4o        # → gpt4o-mini when available
     max_tokens: 200
     temperature: 0
-    cost_per_call: 0.001
+    cost_tier: light
 
   out_summary:
-    model: gpt4o
+    model: gpt4o        # → gpt4o-mini when available
     max_tokens: 300
     temperature: 0.3
-    cost_per_call: 0.001
+    cost_tier: light
 
 embeddings:
   model: text-embedding-3-large

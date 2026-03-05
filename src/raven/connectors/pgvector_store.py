@@ -7,11 +7,15 @@ Manages four tables:
 - glossary_embeddings — semantic model / business glossary terms
 - doc_embeddings      — documentation chunks (Word/PDF/Markdown/OpenMetadata)
 
-All embeddings use text-embedding-3-small (1536-dim) by default.
+Plus operational tables:
+- query_log           — stores every pipeline query for feedback loop
+
+All embeddings use text-embedding-3-large (3072-dim).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -65,6 +69,21 @@ _TABLES: dict[str, str] = {
         metadata JSONB,
         created_at TIMESTAMPTZ DEFAULT NOW()
     """,
+    "query_log": """
+        id SERIAL PRIMARY KEY,
+        query_id VARCHAR(36) NOT NULL UNIQUE,
+        question TEXT NOT NULL,
+        sql_text TEXT,
+        difficulty VARCHAR(20),
+        confidence VARCHAR(20),
+        row_count INTEGER DEFAULT 0,
+        conversation_id VARCHAR(36),
+        feedback VARCHAR(20),
+        correction_sql TEXT,
+        correction_notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        feedback_at TIMESTAMPTZ
+    """,
 }
 
 
@@ -108,7 +127,7 @@ class PgVectorStore:
                     # Vector index — pgvector 0.8.0 limits indexes to ≤2000 dims
                     # For 3072-dim (text-embedding-3-large), skip index creation;
                     # sequential scan is fast enough for <10K rows.
-                    if EMBEDDING_DIM <= 2000:
+                    if "embedding" in columns_sql and EMBEDDING_DIM <= 2000:
                         idx_name = f"idx_{table_name}_embedding"
                         cur.execute(f"""
                             CREATE INDEX IF NOT EXISTS {idx_name}
@@ -116,9 +135,24 @@ class PgVectorStore:
                             USING hnsw (embedding vector_cosine_ops)
                             WITH (m = 16, ef_construction = 64);
                         """)
-                    else:
+                    elif "embedding" in columns_sql:
                         logger.info("pgvector_skip_index", table=table_name,
                                     reason=f"dim={EMBEDDING_DIM} exceeds pgvector index limit (2000)")
+                # Non-vector indexes for query_log
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_query_log_query_id
+                    ON query_log (query_id);
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_query_log_conversation
+                    ON query_log (conversation_id)
+                    WHERE conversation_id IS NOT NULL;
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_query_log_feedback
+                    ON query_log (feedback)
+                    WHERE feedback IS NOT NULL;
+                """)
             conn.commit()
             logger.info("pgvector_tables_initialized", tables=list(_TABLES.keys()))
         finally:
@@ -291,6 +325,139 @@ class PgVectorStore:
                 cur.execute(f"TRUNCATE TABLE {tbl};")
             conn.commit()
             logger.info("pgvector_truncated", table=tbl)
+        finally:
+            self._pool.putconn(conn)
+
+    # ------------------------------------------------------------------ #
+    # Async Search (for true parallelism with asyncio.gather)
+    # ------------------------------------------------------------------ #
+
+    async def async_search(
+        self,
+        table_name: str,
+        query_embedding: list[float],
+        top_k: int = 5,
+        filter_sql: str | None = None,
+        metadata_filter: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Thread-pool wrapper around synchronous search for true async parallelism.
+
+        Use this instead of search() when calling multiple searches via asyncio.gather.
+        """
+        return await asyncio.to_thread(
+            self.search,
+            table_name=table_name,
+            query_embedding=query_embedding,
+            top_k=top_k,
+            filter_sql=filter_sql,
+            metadata_filter=metadata_filter,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Query Log (feedback persistence)
+    # ------------------------------------------------------------------ #
+
+    def log_query(
+        self,
+        query_id: str,
+        question: str,
+        sql_text: str | None = None,
+        difficulty: str = "unknown",
+        confidence: str = "LOW",
+        row_count: int = 0,
+        conversation_id: str | None = None,
+    ) -> None:
+        """Insert a pipeline query into the query_log table."""
+        sql = """
+            INSERT INTO query_log (query_id, question, sql_text, difficulty,
+                                   confidence, row_count, conversation_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (query_id) DO NOTHING;
+        """
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, [
+                    query_id, question, sql_text, difficulty,
+                    confidence, row_count, conversation_id,
+                ])
+            conn.commit()
+        finally:
+            self._pool.putconn(conn)
+
+    def update_feedback(
+        self,
+        query_id: str,
+        feedback: str,
+        correction_sql: str | None = None,
+        correction_notes: str | None = None,
+    ) -> bool:
+        """Set feedback status on a logged query. Returns True if row was updated."""
+        sql = """
+            UPDATE query_log
+            SET feedback = %s, correction_sql = %s, correction_notes = %s,
+                feedback_at = NOW()
+            WHERE query_id = %s;
+        """
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, [feedback, correction_sql, correction_notes, query_id])
+                updated = cur.rowcount > 0
+            conn.commit()
+            return updated
+        finally:
+            self._pool.putconn(conn)
+
+    def get_query(self, query_id: str) -> dict | None:
+        """Retrieve a single query log entry by its query_id."""
+        sql = "SELECT * FROM query_log WHERE query_id = %s;"
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql, [query_id])
+                row = cur.fetchone()
+            return dict(row) if row else None
+        finally:
+            self._pool.putconn(conn)
+
+    def get_conversation_history(
+        self,
+        conversation_id: str,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Retrieve recent queries for a conversation, ordered chronologically."""
+        sql = """
+            SELECT query_id, question, sql_text, difficulty, confidence, row_count,
+                   created_at
+            FROM query_log
+            WHERE conversation_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s;
+        """
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql, [conversation_id, limit])
+                rows = cur.fetchall()
+            return [dict(r) for r in reversed(rows)]  # chronological order
+        finally:
+            self._pool.putconn(conn)
+
+    def get_pending_corrections(self, limit: int = 50) -> list[dict]:
+        """Get queries flagged with thumbs_down that need review."""
+        sql = """
+            SELECT * FROM query_log
+            WHERE feedback = 'thumbs_down'
+            ORDER BY feedback_at DESC
+            LIMIT %s;
+        """
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql, [limit])
+                rows = cur.fetchall()
+            return [dict(r) for r in rows]
         finally:
             self._pool.putconn(conn)
 

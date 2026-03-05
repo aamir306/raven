@@ -30,6 +30,8 @@ from .generation.candidate_generator import CandidateGenerator
 from .validation.candidate_selector import CandidateSelector
 from .output.renderer import OutputRenderer
 from .feedback.collector import FeedbackCollector
+from .conversation import ConversationManager
+from .cache import QueryCache
 
 logger = logging.getLogger(__name__)
 
@@ -90,10 +92,15 @@ class Pipeline:
         trino: TrinoConnector,
         pgvector: PgVectorStore,
         openai: OpenAIClient,
+        cache_enabled: bool = True,
+        cache_ttl: int = 3600,
     ):
         self.trino = trino
         self.pgvector = pgvector
         self.openai = openai
+
+        # Query result cache
+        self.cache = QueryCache(enabled=cache_enabled, ttl_seconds=cache_ttl)
 
         # Initialize stage handlers (decomposed orchestrators)
         self.router = DifficultyClassifier(openai)
@@ -103,7 +110,8 @@ class Pipeline:
         self.generator = CandidateGenerator(openai, trino)
         self.validator = CandidateSelector(openai, trino)
         self.renderer = OutputRenderer(openai, trino)
-        self.feedback = FeedbackCollector(pgvector)
+        self.feedback = FeedbackCollector(pgvector, openai)
+        self.conversation = ConversationManager(openai, pgvector)
 
         # Load preprocessing artifacts from data/ directory
         self._load_artifacts()
@@ -165,8 +173,26 @@ class Pipeline:
 
         Returns a dict with: sql, data, chart, summary, confidence, timings, cost.
         """
+        # ── Cache check ────────────────────────────────────────────────
+        cached = self.cache.get(question)
+        if cached is not None:
+            cached["cached"] = True
+            logger.info("Cache hit for: %s", question[:60])
+            return cached
+
+        # ── Multi-turn resolution ──────────────────────────────────────
+        conv_result = await self.conversation.resolve_question(question, conversation_id)
+        effective_question = conv_result["resolved_question"]
+        is_followup = conv_result["is_followup"]
+
+        if is_followup:
+            logger.info(
+                "Follow-up resolved: '%s' → '%s'",
+                question[:50], effective_question[:50],
+            )
+
         ctx = PipelineContext(
-            user_question=question,
+            user_question=effective_question,
             conversation_id=conversation_id,
         )
         pipeline_start = time.monotonic()
@@ -211,7 +237,18 @@ class Pipeline:
         ctx.stage_timings["total"] = time.monotonic() - pipeline_start
         ctx.total_cost = self.openai.get_cost_summary().get("total_usd", 0.0)
 
-        return self._success_response(ctx)
+        result = self._success_response(ctx)
+
+        # Add conversation metadata
+        if is_followup:
+            result["original_question"] = question
+            result["is_followup"] = True
+
+        # ── Store in cache ─────────────────────────────────────────────
+        self.cache.put(question, result)
+        result["cached"] = False
+
+        return result
 
     # ── Stage Implementations ──────────────────────────────────────────
 
