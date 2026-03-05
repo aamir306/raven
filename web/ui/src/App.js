@@ -6,6 +6,7 @@ import ResponseCard from './components/ResponseCard';
 import Landing from './components/Landing';
 import FocusDropdown from './components/FocusDropdown';
 import FocusBanner from './components/FocusBanner';
+import MetabaseLinkPreview, { detectMetabaseUrl, fetchLinkPreview } from './components/MetabaseLinkPreview';
 import './App.css';
 
 const DocumentUpload = lazy(() => import('./components/pages/DocumentUpload'));
@@ -59,6 +60,12 @@ function App() {
   // Focus Mode state
   const [activeFocus, setActiveFocus] = useState(null); // { type, id, name, tables, ... }
   const [focusDropdownVisible, setFocusDropdownVisible] = useState(false);
+
+  // Metabase Link-in-Chat state
+  const [linkPreview, setLinkPreview] = useState(null);      // { type, id, name, ... } from API
+  const [linkPreviewLoading, setLinkPreviewLoading] = useState(false);
+  const [detectedUrl, setDetectedUrl] = useState(null);       // raw Metabase URL string
+  const linkPreviewTimer = useRef(null);
 
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -234,7 +241,13 @@ function App() {
       question: cleanQ,
       conversation_id: currentConversationId,
       focus_id: activeFocus?.id || null,
+      metabase_url: detectedUrl || null,
     });
+
+    // Clear link preview on send
+    setLinkPreview(null);
+    setDetectedUrl(null);
+    setLinkPreviewLoading(false);
 
     // Try SSE streaming first, fall back to regular POST
     try {
@@ -311,15 +324,40 @@ function App() {
       setLoading(false);
       setLoadingStageDetail('');
     }
-  }, [input, loading, activeSession, conversationId, messages, saveSessionMessages, parseSSE, activeFocus]);
+  }, [input, loading, activeSession, conversationId, messages, saveSessionMessages, parseSSE, activeFocus, detectedUrl]);
 
-  // Handle "/" key to open focus dropdown
+  // Handle "/" key to open focus dropdown + detect Metabase URLs
   const handleInputChange = (e) => {
     const val = e.target.value;
     setInput(val);
     autoResize(e);
     if (val === '/') {
       setFocusDropdownVisible(true);
+    }
+    // Debounced Metabase URL detection
+    clearTimeout(linkPreviewTimer.current);
+    const urlInfo = detectMetabaseUrl(val);
+    if (urlInfo && urlInfo.url !== detectedUrl) {
+      setDetectedUrl(urlInfo.url);
+      setLinkPreviewLoading(true);
+      linkPreviewTimer.current = setTimeout(async () => {
+        try {
+          const preview = await fetchLinkPreview(urlInfo.url);
+          if (preview) {
+            preview._url = urlInfo.url;
+            setLinkPreview(preview);
+          }
+        } catch {
+          // Metabase not configured — that's fine, clear preview
+          setLinkPreview(null);
+        } finally {
+          setLinkPreviewLoading(false);
+        }
+      }, 400);
+    } else if (!urlInfo) {
+      setDetectedUrl(null);
+      setLinkPreview(null);
+      setLinkPreviewLoading(false);
     }
   };
 
@@ -632,6 +670,12 @@ function App() {
               </button>
             </div>
           )}
+          {/* Metabase link preview (auto-detected from input) */}
+          <MetabaseLinkPreview
+            preview={linkPreview}
+            loading={linkPreviewLoading}
+            onRemove={() => { setLinkPreview(null); setDetectedUrl(null); }}
+          />
           <div className="input-bar">
             <textarea
               ref={textareaRef}

@@ -1215,6 +1215,49 @@ body {
 }
 .input-focus-pill-clear:hover { color: var(--error); }
 
+/* ── Metabase Link Preview (inline above input) ─────────────────── */
+
+.metabase-link-preview {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px 12px; margin-bottom: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); font-size: 12px;
+  animation: fadeIn .2s ease;
+}
+.metabase-link-preview.loading {
+  align-items: center; gap: 8px; color: var(--text-muted);
+  font-style: italic;
+}
+.metabase-link-preview-icon {
+  color: var(--accent); padding-top: 1px; flex-shrink: 0;
+}
+.metabase-link-preview-info { flex: 1; min-width: 0; }
+.metabase-link-preview-name {
+  font-weight: 600; font-size: 13px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.metabase-link-preview-meta {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text-muted); margin-top: 2px;
+}
+.metabase-link-preview-meta span { display: flex; align-items: center; gap: 2px; }
+.metabase-link-preview-hint {
+  font-size: 10px; color: var(--accent); margin-top: 3px; opacity: .8;
+}
+.metabase-link-preview-actions {
+  display: flex; gap: 4px; flex-shrink: 0;
+}
+.metabase-link-preview-open,
+.metabase-link-preview-remove {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--bg-elevated);
+  color: var(--text-muted); cursor: pointer; text-decoration: none;
+  transition: all .15s;
+}
+.metabase-link-preview-open:hover { color: var(--accent); border-color: var(--accent); }
+.metabase-link-preview-remove:hover { color: var(--error); border-color: var(--error); }
+
 /* ── Enhancement Suggestions ────────────────────────────────────── */
 
 .enhancement-suggestions {

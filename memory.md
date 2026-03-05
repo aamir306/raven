@@ -341,14 +341,14 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 
 ## Current Project Status (March 5, 2026)
 
-**HEAD:** `9e53450` (Phase 5.3) on `main`, pushed to GitHub
+**HEAD:** `8b7f6d1` (Phase 5.4) on `main`
 
 | Phase | Status | Commit |
 |---|---|---|
 | Phase 1 (Weeks 1-3) | ✅ Complete | 63fbe72 |
 | Phase 2 (Weeks 4-5) | ✅ Complete | fd548cf |
 | Phase 3 (Weeks 6-8) | ✅ Complete | 152f3f8 |
-| Phase 5 (Weeks 13-16) | ✅ Complete | b43c4f7, 17129cc, 4eaed6a, 9e53450 |
+| Phase 5 (Weeks 13-16) | ✅ Complete | b43c4f7, 17129cc, 4eaed6a, 9e53450, 8b7f6d1 |
 | Phase 6 (Weeks 17-20) | 🟡 Tooling done, data population pending | 0600663 |
 | Phase 4 (Weeks 9-12) | ⬜ Not started | — |
 
@@ -373,6 +373,7 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 
 | Commit | Message |
 |---|---|
+| 8b7f6d1 | Phase 5.4: Focus Mode + Living Documents + Metabase Bridge + Link-in-Chat |
 | 9e53450 | Phase 5.3: SSE streaming, follow-up suggestions, schema explorer, SVG export |
 | 4eaed6a | Phase 5.2: ThinkingTab, action bar, tables-used, Excel/filter, Documents/Glossary/Admin pages |
 | 17129cc | Phase 5.1: Multi-turn sessions, help modal, search, loading progress |
@@ -523,3 +524,50 @@ Stage 8: Respond + Feedback → SQL + table + chart + summary + confidence + thu
 - [ ] Run `build_content_awareness.py --from-env` (populate 49K null stats)
 - [ ] Re-embed updated schema_catalog into pgvector
 - [ ] Re-run 30-question eval to measure accuracy lift
+
+---
+
+## Phase 5.4 Changes (commit 8b7f6d1)
+
+### Architecture: Tiered Priority (NOT Hard Exclusion)
+Focus Mode uses 5× similarity boost for focus tables. All 1,200+ tables remain available at normal weight. This avoids blocking legitimate queries that need out-of-focus tables while strongly preferring in-scope context.
+
+### New Files
+- **src/raven/focus.py** (~320 lines) — `FocusContext` dataclass, `FocusDocument` with JSON persistence under `data/focus_documents/`, `FocusStore` (CRUD + suggestion management), `parse_metabase_url()` regex URL detector, `suggest_enhancements()` Living Documents generator
+- **src/raven/connectors/metabase_client.py** (~270 lines) — Async Metabase REST API client: test_connection, create/get questions, list/get/create dashboards, add cards, list/get collections. `_parse_tables_from_sql()` helper, `VIZ_MAPPING` dict
+- **web/ui/src/components/FocusDropdown.js** — `/` command dropdown showing focus documents + Metabase dashboards, searchable
+- **web/ui/src/components/FocusBanner.js** — Active focus indicator in chat area, tiered architecture hint ("Priority tables boosted 5×"), expandable details
+- **web/ui/src/components/MetabasePushModal.js** — Push SQL results to Metabase (save as question or add to dashboard), collection/dashboard selector
+- **web/ui/src/components/MetabaseLinkPreview.js** — Inline preview card when Metabase URL detected in input, shows dashboard/question metadata, auto-focus hint
+- **web/ui/src/components/EnhancementSuggestions.js** — Living Documents UI: Accept/Skip suggestions for add_table, add_rule, add_query, add_note
+- **web/ui/src/components/pages/FocusDocumentEditor.js** — Full CRUD for focus documents: table selector with search, business rules, verified queries
+- **web/ui/src/components/pages/MetabaseSettings.js** — Metabase connection config, test connection, setup instructions
+
+### Modified Files
+- **src/raven/pipeline.py** — Added `focus` field to PipelineContext, `focus` param to `generate()`, calls `suggest_enhancements()` after pipeline, includes focus/enhancements in success response
+- **src/raven/api.py** — Registered `focus_router` and `metabase_router`
+- **web/routes/__init__.py** — 18+ new endpoints: focus CRUD (6), suggestions (3), metabase bridge (9+). `_resolve_focus_async()` with full Metabase URL enrichment (dashboard cards → tables → FocusContext). `metabase_url` field in QueryRequest. Both `/query` and `/query/stream` use async focus resolution.
+- **web/ui/src/App.js** — Focus state, `/` command handler, Metabase URL detection with debounced preview, `metabase_url` in request body, FocusBanner/FocusDropdown/MetabaseLinkPreview rendering, sidebar tools (Focus Docs, Metabase)
+- **web/ui/src/components/ResponseCard.js** — Focus indicator badge, Push to Metabase button, EnhancementSuggestions section, out-of-focus table warning
+- **web/ui/src/App.css** — ~350 lines: focus-dropdown, focus-banner, input-focus-pill, metabase-link-preview, metabase-push-modal, enhancement-suggestions, focus-doc-editor, settings, out-of-focus-warning, badge-focus, spin animation
+
+### API Endpoints Added
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | /api/focus/documents | List all focus documents |
+| POST | /api/focus/documents | Create focus document |
+| GET | /api/focus/documents/{id} | Get focus document |
+| PUT | /api/focus/documents/{id} | Update focus document |
+| DELETE | /api/focus/documents/{id} | Delete focus document |
+| GET | /api/focus/suggestions | List enhancement suggestions |
+| POST | /api/focus/suggestions | Add enhancement suggestion |
+| POST | /api/focus/suggestions/{id}/review | Accept/reject suggestion |
+| GET | /api/metabase/config | Get Metabase connection config |
+| POST | /api/metabase/test-connection | Test Metabase connectivity |
+| GET | /api/metabase/dashboards | List Metabase dashboards |
+| GET | /api/metabase/dashboards/{id}/cards | Get dashboard cards |
+| POST | /api/metabase/preview-link | Fetch inline preview for URL |
+| POST | /api/metabase/push-question | Save SQL as Metabase question |
+| POST | /api/metabase/push-dashboard | Create Metabase dashboard |
+| POST | /api/metabase/add-to-dashboard | Add question to dashboard |
+| GET | /api/metabase/collections | List Metabase collections |

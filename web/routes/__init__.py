@@ -35,6 +35,7 @@ class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     conversation_id: str | None = None
     focus_id: str | None = None  # UUID of a focus document to scope context
+    metabase_url: str | None = None  # Metabase link pasted in chat → auto-focus
 
 
 class QueryResponse(BaseModel):
@@ -110,23 +111,115 @@ def get_pipeline():
 # ── Query Routes ──────────────────────────────────────────────────────
 
 
-def _resolve_focus(focus_id: str | None):
-    """Resolve a focus document ID into a FocusContext, or None."""
-    if not focus_id:
+def _resolve_focus(focus_id: str | None, metabase_url: str | None = None):
+    """Resolve a focus document ID or Metabase URL into a FocusContext, or None."""
+    # Priority 1: explicit focus document
+    if focus_id:
+        from src.raven.focus import FocusStore
+        store = FocusStore()
+        doc = store.get_document(focus_id)
+        if doc:
+            return doc.to_focus_context()
+    # Priority 2: Metabase URL → auto-build FocusContext from link preview
+    if metabase_url:
+        return _focus_from_metabase_url(metabase_url)
+    return None
+
+
+def _focus_from_metabase_url(url: str):
+    """Build a FocusContext from a Metabase URL (sync wrapper for startup)."""
+    from src.raven.focus import parse_metabase_url, FocusContext
+    info = parse_metabase_url(url)
+    if not info:
         return None
-    from src.raven.focus import FocusStore
-    store = FocusStore()
-    doc = store.get_document(focus_id)
-    if not doc:
+    # We can't await here in a sync function, so return a partial FocusContext
+    # with the URL metadata. The pipeline will enrich it lazily if needed.
+    return FocusContext(
+        type=info["type"],
+        name=f"Metabase {info['type']} #{info['id']}",
+        source_id=str(info["id"]),
+    )
+
+
+async def _resolve_focus_async(focus_id: str | None, metabase_url: str | None = None):
+    """Async version: resolves focus, enriching Metabase URLs with live API data."""
+    # Priority 1: explicit focus document
+    if focus_id:
+        from src.raven.focus import FocusStore
+        store = FocusStore()
+        doc = store.get_document(focus_id)
+        if doc:
+            return doc.to_focus_context()
+    # Priority 2: Metabase URL → full async enrichment
+    if metabase_url:
+        return await _focus_from_metabase_url_async(metabase_url)
+    return None
+
+
+async def _focus_from_metabase_url_async(url: str):
+    """Build a fully-enriched FocusContext from a Metabase URL."""
+    from src.raven.focus import parse_metabase_url, FocusContext
+    info = parse_metabase_url(url)
+    if not info:
         return None
-    return doc.to_focus_context()
+    try:
+        client = _get_metabase_client()
+    except Exception:
+        # Metabase not configured — return minimal context
+        return FocusContext(
+            type=info["type"],
+            name=f"Metabase {info['type']} #{info['id']}",
+            source_id=str(info["id"]),
+        )
+    try:
+        if info["type"] == "dashboard":
+            meta = await client.get_dashboard_meta(info["id"])
+            cards = await client.get_dashboard_cards(info["id"])
+            tables = list({t for c in cards for t in c.get("tables", [])})
+            return FocusContext(
+                type="dashboard",
+                name=meta.get("name", f"Dashboard #{info['id']}"),
+                source_id=str(info["id"]),
+                tables=tables,
+                verified_queries=[
+                    {"question": c["name"], "sql": c["sql"]} for c in cards if c.get("sql")
+                ],
+                dashboard_cards=cards,
+                dashboard_filters=meta.get("filters", []),
+                table_count=len(tables),
+                rule_count=0,
+                query_count=len(cards),
+            )
+        elif info["type"] == "question":
+            card = await client.get_question(info["id"])
+            tables = card.get("tables", [])
+            return FocusContext(
+                type="question",
+                name=card.get("name", f"Question #{info['id']}"),
+                source_id=str(info["id"]),
+                tables=tables,
+                verified_queries=[
+                    {"question": card["name"], "sql": card["sql"]} for _ in [1] if card.get("sql")
+                ],
+                dashboard_cards=[card],
+                table_count=len(tables),
+                query_count=1 if card.get("sql") else 0,
+            )
+    except Exception as exc:
+        logger.warning("Failed to enrich Metabase focus from %s: %s", url, exc)
+        return FocusContext(
+            type=info["type"],
+            name=f"Metabase {info['type']} #{info['id']}",
+            source_id=str(info["id"]),
+        )
+    return None
 
 
 @query_router.post("/query", response_model=QueryResponse)
 async def query(request: QueryRequest, pipeline=Depends(get_pipeline)):
     """Submit a natural language question to the text-to-SQL pipeline."""
     query_id = str(uuid.uuid4())[:8]
-    focus = _resolve_focus(request.focus_id)
+    focus = await _resolve_focus_async(request.focus_id, request.metabase_url)
     result = await pipeline.generate(
         question=request.question,
         conversation_id=request.conversation_id,
@@ -165,7 +258,7 @@ async def query_stream(request: QueryRequest, pipeline=Depends(get_pipeline)):
 
     async def run_pipeline():
         try:
-            focus = _resolve_focus(request.focus_id)
+            focus = await _resolve_focus_async(request.focus_id, request.metabase_url)
             result = await pipeline.generate(
                 question=request.question,
                 conversation_id=request.conversation_id,
