@@ -813,6 +813,36 @@ async def review_focus_suggestion(suggestion_id: int, body: dict):
     return {"status": action, "suggestion": result}
 
 
+# ── OpenMetadata Domain Focus Routes ──────────────────────────────
+
+
+@focus_router.get("/domains")
+async def list_om_domains_endpoint(pipeline=Depends(get_pipeline)):
+    """List available OpenMetadata domains for Focus Mode."""
+    from src.raven.focus import list_om_domains
+    om_client = getattr(pipeline, "om_client", None)
+    domains = await list_om_domains(om_client)
+    return {"domains": domains}
+
+
+@focus_router.post("/domain-focus")
+async def create_domain_focus(body: dict, pipeline=Depends(get_pipeline)):
+    """Create a Focus context from an OpenMetadata domain."""
+    domain_name = body.get("domain", "")
+    if not domain_name:
+        raise HTTPException(status_code=400, detail="domain name required")
+
+    from src.raven.focus import focus_from_domain
+    om_client = getattr(pipeline, "om_client", None)
+    focus = await focus_from_domain(domain_name, om_client)
+    if not focus:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Domain '{domain_name}' not found or OpenMetadata unavailable",
+        )
+    return {"focus": focus.to_dict()}
+
+
 # ── Metabase Bridge Routes ────────────────────────────────────────
 
 

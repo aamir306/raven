@@ -55,6 +55,7 @@ class Stage:
     required_env: list[str] = field(default_factory=list)
     required_files: list[str] = field(default_factory=list)
     optional: bool = False
+    om_replaced: bool = False  # True if OpenMetadata provides this data at runtime
 
 
 ALL_STAGES: list[Stage] = [
@@ -88,7 +89,7 @@ ALL_STAGES: list[Stage] = [
     ),
     Stage(
         name="content_awareness",
-        description="Build Content Awareness column metadata",
+        description="Build Content Awareness column metadata (OM provides at runtime)",
         module="preprocessing.build_content_awareness",
         args=[
             "--catalog-path", "data/schema_catalog.json",
@@ -97,10 +98,11 @@ ALL_STAGES: list[Stage] = [
         ],
         required_files=["data/schema_catalog.json"],
         optional=True,
+        om_replaced=True,
     ),
     Stage(
         name="graph",
-        description="Build unified table relationship graph",
+        description="Build unified table relationship graph (OM lineage at runtime)",
         module="preprocessing.build_table_graph",
         args=[
             "--dbt-lineage", "data/dbt_lineage_graph.gpickle",
@@ -108,6 +110,7 @@ ALL_STAGES: list[Stage] = [
             "--semantic-model", "{RAVEN_SEMANTIC_MODEL}",
             "--output", "data/table_graph.gpickle",
         ],
+        om_replaced=True,
     ),
     Stage(
         name="glossary",
@@ -255,6 +258,18 @@ def run_all(
         "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", ""),
     }
 
+    # Skip OM-replaced stages when OpenMetadata is configured
+    om_url = os.getenv("OPENMETADATA_URL", "")
+    if om_url:
+        before = len(stages)
+        skipped_names = [s.name for s in stages if s.om_replaced]
+        stages = [s for s in stages if not s.om_replaced]
+        if skipped_names:
+            logger.info(
+                "OpenMetadata detected (%s) — skipping OM-replaced stages: %s",
+                om_url, ", ".join(skipped_names),
+            )
+
     # Ensure data directory exists
     Path("data").mkdir(exist_ok=True)
 
@@ -316,8 +331,13 @@ def main():
         print("\nAvailable preprocessing stages:")
         print("-" * 50)
         for s in ALL_STAGES:
-            opt = " (optional)" if s.optional else ""
-            print(f"  {s.name:20s} {s.description}{opt}")
+            flags = []
+            if s.optional:
+                flags.append("optional")
+            if s.om_replaced:
+                flags.append("OM-replaced")
+            suffix = f" ({', '.join(flags)})" if flags else ""
+            print(f"  {s.name:20s} {s.description}{suffix}")
         return
 
     stage_filter = None

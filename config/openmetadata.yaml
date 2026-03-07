@@ -1,0 +1,31 @@
+# ── OpenMetadata MCP Integration ──────────────────────────────────────
+# RAVEN uses OpenMetadata as its primary metadata backbone:
+#   - Semantic search (replaces pgvector schema_embeddings)
+#   - Lineage graph (replaces NetworkX dbt graph)
+#   - Glossary terms (supplements semantic_model.yaml)
+#   - Column profiles (replaces content_awareness.json)
+#   - Data quality checks (NEW: warn on failing tests)
+#   - Write-back: test cases, lineage, glossary terms, knowledge articles
+
+openmetadata:
+  url: "${OPENMETADATA_URL}"                # https://openmetadata.pw.live
+  pat: "${OPENMETADATA_PAT}"                # Personal Access Token
+
+  # Which features to use from OpenMetadata
+  features:
+    semantic_search: true                   # Use OM's vector search (replaces pgvector schema search)
+    lineage_graph: true                     # Use OM's lineage (replaces NetworkX)
+    glossary: true                          # Use OM's glossary (supplements our semantic_model.yaml)
+    column_profiles: true                   # Use OM's profiles (replaces content_awareness.json)
+    quality_checks: true                    # Show quality warnings in responses
+    auto_create_test_cases: true            # Auto-create DQ tests from probe discoveries
+    write_back_lineage: true                # Write discovered relationships back to OM
+    write_back_glossary: true               # Push new business terms to OM
+    domain_focus: true                      # Enable domain-based Focus Mode
+
+  # Fallback: if OpenMetadata is down, fall back to local files
+  fallback:
+    enabled: true
+    schema_catalog_path: "data/schema_catalog.json"
+    content_awareness_path: "data/content_awareness.json"
+    table_graph_path: "data/table_graph.gpickle"

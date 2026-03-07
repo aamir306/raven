@@ -321,3 +321,74 @@ async def suggest_enhancements(focus: FocusContext | None,
                 })
 
     return suggestions
+
+
+# ── Domain-Based Focus Mode (OpenMetadata) ─────────────────────────
+
+async def focus_from_domain(domain_name: str, om_client: Any) -> FocusContext | None:
+    """
+    Build a FocusContext from an OpenMetadata domain.
+    Zero-setup Focus Mode — select a domain and get instant scoping.
+
+    Args:
+        domain_name: Name of the OM domain (e.g. "Revenue", "Marketing")
+        om_client: OpenMetadataMCPClient instance
+
+    Returns:
+        FocusContext with tables and glossary terms from the domain,
+        or None if OM is unavailable or domain not found.
+    """
+    if not om_client:
+        return None
+
+    try:
+        result = await om_client.focus_from_domain(domain_name)
+        if not result or not result.get("tables"):
+            logger.info("Domain '%s' not found or has no tables in OpenMetadata", domain_name)
+            return None
+
+        glossary_terms = [
+            {
+                "term": g.get("term", ""),
+                "definition": g.get("definition", ""),
+                "sql_fragment": g.get("sql_fragment", ""),
+            }
+            for g in result.get("glossary_terms", [])
+        ]
+
+        return FocusContext(
+            type="domain",
+            name=domain_name,
+            source_id=f"om_domain_{domain_name}",
+            tables=result.get("tables", []),
+            glossary_terms=glossary_terms,
+            table_count=result.get("table_count", len(result.get("tables", []))),
+        )
+
+    except Exception as exc:
+        logger.warning("Failed to build focus from OM domain '%s': %s", domain_name, exc)
+        return None
+
+
+async def list_om_domains(om_client: Any) -> list[dict]:
+    """
+    List available OpenMetadata domains for Focus Mode selection.
+
+    Returns:
+        [{"name": "Revenue", "description": "...", "table_count": 42}, ...]
+    """
+    if not om_client:
+        return []
+    try:
+        domains = await om_client.get_domains()
+        return [
+            {
+                "name": d.get("name", ""),
+                "description": d.get("description", ""),
+                "fullyQualifiedName": d.get("fullyQualifiedName", ""),
+            }
+            for d in domains
+        ]
+    except Exception as exc:
+        logger.debug("Failed to list OM domains: %s", exc)
+        return []

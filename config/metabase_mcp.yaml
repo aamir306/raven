@@ -1,0 +1,28 @@
+# ── Metabase MCP Integration ──────────────────────────────────────────
+# RAVEN uses the Cognition AI Metabase MCP server (82 tools) to replace
+# the custom MetabaseClient with full dashboard/question lifecycle:
+#   - Focus Mode dashboard context
+#   - Push-to-Metabase (create card, dashboard, add card)
+#   - Link-in-Chat (fetch dashboard/question from URL)
+#   - Metabase Q-SQL extraction (list_cards replaces direct PostgreSQL)
+
+metabase:
+  url: "${METABASE_URL}"                    # https://metabase.pw.live
+  api_key: "${METABASE_API_KEY}"            # mb_xxxxxxx (recommended over session ID)
+  session_id: "${METABASE_SESSION_ID}"      # Optional fallback auth
+
+  mcp_server: "@cognitionai/metabase-mcp-server"
+  mcp_args: ["--all"]                       # Load all tools
+
+  defaults:
+    database_id: 1                          # Trino database ID in Metabase
+    collection_name: "RAVEN Generated"      # Collection for AI-generated questions
+
+  visualization_mapping:
+    number_card: "scalar"
+    line_chart: "line"
+    bar_chart: "bar"
+    horizontal_bar: "row"
+    pie_chart: "pie"
+    scatter: "scatter"
+    table: "table"

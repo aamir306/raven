@@ -24,9 +24,11 @@ logger = logging.getLogger(__name__)
 class FeedbackCollector:
     """Collect and store user feedback for continuous improvement."""
 
-    def __init__(self, pgvector: PgVectorStore, openai: OpenAIClient | None = None):
+    def __init__(self, pgvector: PgVectorStore, openai: OpenAIClient | None = None,
+                 om_client: Any = None):
         self.pgvector = pgvector
         self.openai = openai  # Needed for embedding thumbs-up pairs
+        self.om_client = om_client  # OpenMetadataMCPClient for write-back
 
     async def log_query(
         self,
@@ -140,11 +142,71 @@ class FeedbackCollector:
                 },
             )
             logger.info("Added thumbs-up query %s to few-shot index", query_id)
+
+            # ── OM Write-Back: push verified query to Knowledge Center ──
+            if self.om_client:
+                try:
+                    tables = query.get("tables_used", [])
+                    if not tables and sql_text:
+                        # Extract tables from SQL as fallback
+                        import re
+                        tables = re.findall(
+                            r'(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_.]*)',
+                            sql_text, re.IGNORECASE
+                        )
+                    await self.om_client.on_thumbs_up(
+                        question=question,
+                        sql=sql_text,
+                        tables=tables,
+                    )
+                    logger.info("Pushed verified query %s to OpenMetadata Knowledge Center", query_id)
+                except Exception:
+                    logger.debug("OM Knowledge Center write-back failed (non-critical)", exc_info=True)
+
             return "added_to_fewshot_index"
 
         except Exception:
             logger.warning("Failed to add query %s to few-shot index", query_id, exc_info=True)
             return "fewshot_insert_failed"
+
+    async def push_glossary_term(self, term: str, definition: str,
+                                 sql_fragment: str = "") -> dict:
+        """Push a new business term to OpenMetadata glossary (write-back)."""
+        result = {"term": term, "action": "skipped"}
+        if not self.om_client:
+            return result
+        try:
+            resp = await self.om_client.create_glossary_term(
+                glossary="raven-business-terms",
+                name=term,
+                description=definition,
+                sql_fragment=sql_fragment,
+            )
+            if resp:
+                result["action"] = "created_in_openmetadata"
+                logger.info("Pushed glossary term '%s' to OpenMetadata", term)
+        except Exception:
+            logger.debug("OM glossary write-back failed for '%s'", term, exc_info=True)
+        return result
+
+    async def push_relationship(self, from_table: str, to_table: str,
+                                join_column: str) -> dict:
+        """Push a discovered table relationship to OpenMetadata lineage."""
+        result = {"from": from_table, "to": to_table, "action": "skipped"}
+        if not self.om_client:
+            return result
+        try:
+            resp = await self.om_client.on_relationship_discovered(
+                from_table=from_table,
+                to_table=to_table,
+                join_column=join_column,
+            )
+            if resp:
+                result["action"] = "created_lineage_in_openmetadata"
+                logger.info("Pushed lineage edge %s → %s to OpenMetadata", from_table, to_table)
+        except Exception:
+            logger.debug("OM lineage write-back failed", exc_info=True)
+        return result
 
     async def get_pending_corrections(self, limit: int = 50) -> list[dict]:
         """Get queries flagged for correction review."""

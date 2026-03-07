@@ -23,6 +23,7 @@ from typing import Any
 from .connectors.openai_client import OpenAIClient
 from .connectors.pgvector_store import PgVectorStore
 from .connectors.trino_connector import TrinoConnector
+from .connectors.openmetadata_mcp import OpenMetadataMCPClient, OpenMetadataConfig
 from .focus import FocusContext, suggest_enhancements, parse_metabase_url
 from .router.classifier import DifficultyClassifier, Difficulty
 from .retrieval.information_retriever import InformationRetriever
@@ -61,12 +62,14 @@ class PipelineContext:
     glossary_matches: list[dict] = field(default_factory=list)
     doc_snippets: list[dict] = field(default_factory=list)
     content_awareness: list[dict] = field(default_factory=list)
+    om_table_candidates: list[dict] = field(default_factory=list)
 
     # Stage 3: Schema Selection
     candidate_columns: list[str] = field(default_factory=list)
     selected_tables: list[str] = field(default_factory=list)
     pruned_schema: str = ""
     join_paths: list[str] = field(default_factory=list)
+    quality_warnings: list[dict] = field(default_factory=list)
 
     # Stage 4: Test Probes
     probe_evidence: list[dict] = field(default_factory=list)
@@ -106,23 +109,39 @@ class Pipeline:
         openai: OpenAIClient,
         cache_enabled: bool = True,
         cache_ttl: int = 3600,
+        om_config_path: str | None = None,
     ):
         self.trino = trino
         self.pgvector = pgvector
         self.openai = openai
+
+        # ── OpenMetadata MCP client (optional) ─────────────────────────
+        self.om_client: OpenMetadataMCPClient | None = None
+        try:
+            config_path = om_config_path or str(
+                Path(__file__).resolve().parents[2] / "config" / "openmetadata.yaml"
+            )
+            om_config = OpenMetadataConfig.from_yaml(config_path)
+            if om_config.is_configured:
+                self.om_client = OpenMetadataMCPClient(om_config)
+                logger.info("OpenMetadata MCP client initialized: %s", om_config.url)
+            else:
+                logger.info("OpenMetadata not configured — using local artifacts only")
+        except Exception as exc:
+            logger.warning("Failed to initialize OpenMetadata MCP client: %s", exc)
 
         # Query result cache
         self.cache = QueryCache(enabled=cache_enabled, ttl_seconds=cache_ttl)
 
         # Initialize stage handlers (decomposed orchestrators)
         self.router = DifficultyClassifier(openai)
-        self.retriever = InformationRetriever(openai, pgvector)
-        self.schema_selector = SchemaSelector(openai, pgvector)
+        self.retriever = InformationRetriever(openai, pgvector, om_client=self.om_client)
+        self.schema_selector = SchemaSelector(openai, pgvector, om_client=self.om_client)
         self.probe_runner = ProbeRunner(openai, trino)
         self.generator = CandidateGenerator(openai, trino)
         self.validator = CandidateSelector(openai, trino)
         self.renderer = OutputRenderer(openai, trino)
-        self.feedback = FeedbackCollector(pgvector, openai)
+        self.feedback = FeedbackCollector(pgvector, openai, om_client=self.om_client)
         self.conversation = ConversationManager(openai, pgvector)
 
         # Load preprocessing artifacts from data/ directory
@@ -387,6 +406,7 @@ class Pipeline:
         ctx.glossary_matches = result.get("glossary_matches", [])
         ctx.doc_snippets = result.get("doc_snippets", [])
         ctx.content_awareness = result.get("content_awareness", [])
+        ctx.om_table_candidates = result.get("om_table_candidates", [])
 
     async def _stage_schema(self, ctx: PipelineContext) -> None:
         result = await self.schema_selector.select(
@@ -396,11 +416,13 @@ class Pipeline:
             similar_queries=ctx.similar_queries,
             doc_snippets=ctx.doc_snippets,
             content_awareness=ctx.content_awareness,
+            om_table_candidates=ctx.om_table_candidates,
         )
         ctx.candidate_columns = result.get("candidate_columns", [])
         ctx.selected_tables = result.get("selected_tables", [])
         ctx.pruned_schema = result.get("pruned_schema", "")
         ctx.join_paths = result.get("join_paths", [])
+        ctx.quality_warnings = result.get("quality_warnings", [])
 
     async def _stage_probes(self, ctx: PipelineContext) -> None:
         ctx.probe_evidence = await self.probe_runner.run_probes(
@@ -469,7 +491,7 @@ class Pipeline:
             ctx.nl_summary = render.get("summary", "")
 
     async def _stage_feedback(self, ctx: PipelineContext) -> None:
-        """Log query for feedback collection (fire-and-forget)."""
+        """Log query for feedback collection + OM write-back (fire-and-forget)."""
         try:
             await self.feedback.log_query(
                 question=ctx.user_question,
@@ -481,6 +503,18 @@ class Pipeline:
             )
         except Exception:
             logger.debug("Feedback logging failed (non-critical)", exc_info=True)
+
+        # ── OM Write-Back: auto-create DQ test cases from probe discoveries ──
+        if self.om_client and ctx.probe_evidence and ctx.selected_tables:
+            try:
+                for table_fqn in ctx.selected_tables[:3]:  # limit
+                    await self.om_client.probe_and_report(
+                        table_fqn=table_fqn,
+                        probe_results=ctx.probe_evidence,
+                        question=ctx.user_question,
+                    )
+            except Exception:
+                logger.debug("OM probe write-back failed (non-critical)", exc_info=True)
 
     # ── Helpers ────────────────────────────────────────────────────────
 
@@ -574,6 +608,8 @@ class Pipeline:
             # Phase 5.4: Focus mode + living document enhancements
             "focus": ctx.focus.to_dict() if ctx.focus else None,
             "enhancements": ctx.enhancement_suggestions,
+            # Phase 6: OpenMetadata quality warnings
+            "quality_warnings": ctx.quality_warnings,
         }
 
     def _ambiguous_response(self, ctx: PipelineContext) -> dict:
