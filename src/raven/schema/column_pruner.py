@@ -37,6 +37,7 @@ class ColumnPruner:
         content_awareness: list[dict],
         doc_snippets: list[dict],
         full_column_catalog: dict[str, list[dict]] | None = None,
+        required_columns: list[str] | None = None,
     ) -> str:
         """
         Prune columns for each selected table.
@@ -47,6 +48,7 @@ class ColumnPruner:
             content_awareness: Column-level metadata from Stage 2.6.
             doc_snippets: Documentation snippets from Stage 2.5.
             full_column_catalog: Optional {table_fqn: [{name, type, desc}, ...]}.
+            required_columns: Deterministic columns that must survive pruning.
 
         Returns:
             Pruned schema as a formatted string — the canonical input to
@@ -89,7 +91,12 @@ class ColumnPruner:
             prompt=prompt, stage_name="ss_column_prune",
         )
 
-        pruned_schema = response.strip()
+        pruned_schema = self._ensure_required_columns(
+            response.strip(),
+            selected_tables,
+            required_columns or [],
+            full_column_catalog,
+        )
         logger.info(
             "Column pruning: %d tables → %d lines of schema",
             len(selected_tables),
@@ -129,3 +136,115 @@ class ColumnPruner:
             if not cols:
                 lines.append("  (no column metadata available)")
         return "\n".join(lines)
+
+    @classmethod
+    def _ensure_required_columns(
+        cls,
+        pruned_schema: str,
+        selected_tables: list[str],
+        required_columns: list[str],
+        catalog: dict[str, list[dict]] | None,
+    ) -> str:
+        if not required_columns:
+            return pruned_schema
+
+        required_by_table = cls._required_by_table(required_columns)
+        if not required_by_table:
+            return pruned_schema
+
+        sections, order = cls._parse_sections(pruned_schema)
+        order = list(order)
+
+        for table in selected_tables:
+            if table in required_by_table and table not in sections:
+                sections[table] = []
+                order.append(table)
+
+        for table, required in required_by_table.items():
+            lines = sections.setdefault(table, [])
+            if table not in order:
+                order.append(table)
+            existing = cls._existing_columns(lines)
+            for column in required:
+                if column in existing:
+                    continue
+                lines.append(cls._format_column_line(table, column, catalog))
+                existing.add(column)
+
+        if not order:
+            return pruned_schema
+
+        rendered: list[str] = []
+        for table in order:
+            rendered.append(f"TABLE: {table}")
+            lines = sections.get(table, [])
+            if lines:
+                rendered.extend(lines)
+            else:
+                rendered.append("  (no column metadata available)")
+
+        return "\n".join(rendered).strip()
+
+    @staticmethod
+    def _required_by_table(required_columns: list[str]) -> dict[str, list[str]]:
+        grouped: dict[str, list[str]] = {}
+        seen: set[str] = set()
+        for ref in required_columns:
+            if ref.count(".") < 1:
+                continue
+            table, column = ref.rsplit(".", 1)
+            key = f"{table}.{column}"
+            if not table or not column or key in seen:
+                continue
+            grouped.setdefault(table, []).append(column)
+            seen.add(key)
+        return grouped
+
+    @staticmethod
+    def _parse_sections(pruned_schema: str) -> tuple[dict[str, list[str]], list[str]]:
+        sections: dict[str, list[str]] = {}
+        order: list[str] = []
+        current_table: str | None = None
+
+        for raw_line in pruned_schema.splitlines():
+            line = raw_line.rstrip()
+            if line.startswith("TABLE: "):
+                current_table = line.split("TABLE: ", 1)[1].strip()
+                if current_table not in sections:
+                    sections[current_table] = []
+                    order.append(current_table)
+                continue
+            if current_table is not None and line:
+                sections[current_table].append(line)
+
+        return sections, order
+
+    @staticmethod
+    def _existing_columns(lines: list[str]) -> set[str]:
+        existing: set[str] = set()
+        for line in lines:
+            stripped = line.strip()
+            if not stripped.startswith("- "):
+                continue
+            body = stripped[2:]
+            column = body.split("(", 1)[0].split("—", 1)[0].strip()
+            if column:
+                existing.add(column)
+        return existing
+
+    @staticmethod
+    def _format_column_line(
+        table: str,
+        column: str,
+        catalog: dict[str, list[dict]] | None,
+    ) -> str:
+        if catalog:
+            for item in catalog.get(table, []):
+                name = str(item.get("name") or item.get("column_name") or "")
+                if name != column:
+                    continue
+                dtype = item.get("type", "unknown")
+                desc = str(item.get("description", "") or "")
+                desc_suffix = f" — {desc}" if desc else ""
+                return f"  - {column} ({dtype}){desc_suffix}"
+        return f"  - {column} (unknown)"

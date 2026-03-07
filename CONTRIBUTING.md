@@ -50,10 +50,11 @@ test: add evaluation for multi-join queries
 ## Pull Request Process
 
 1. Update documentation if you change behavior
-2. Add tests for new functionality
-3. Ensure all tests pass: `pytest tests/`
-4. Update `config/` files if you add new configuration options
-5. Keep PRs focused — one feature or fix per PR
+2. Update `docs/ai-handoff.md` and `docs/accuracy-first-10-10-roadmap.md` if you materially change architecture, progress state, or next-step priorities
+3. Add tests for new functionality
+4. Ensure all tests pass: `pytest tests/`
+5. Update `config/` files if you add new configuration options
+6. Keep PRs focused — one feature or fix per PR
 
 ## Reporting Issues
 

@@ -1,5 +1,11 @@
 # GPT-5.4 Codebase Evaluation Prompt — RAVEN
 
+Current-state note:
+
+- Before using this prompt, first read `docs/ai-handoff.md` and `docs/accuracy-first-10-10-roadmap.md`.
+- This prompt still contains some historical architecture framing and some legacy file references.
+- Treat the active runtime path in `docs/ai-handoff.md` as the source of truth if this prompt conflicts with the repo's current implementation state.
+
 > **How to use**: Copy everything below the `---` line into ChatGPT (GPT-5.4 Thinking). Upload the **entire repo as a zip**, or use the Codex "Open repo" feature pointing at `https://github.com/aamir306/raven`. Say **"think hard about this"** in the prompt to trigger deep reasoning mode (xhigh effort).
 
 ---
@@ -50,18 +56,29 @@ Stage 8: Feedback      → thumbs up/down → few-shot store + OM Knowledge Cent
 | File | Lines | Why It Matters |
 |---|---|---|
 | `src/raven/pipeline.py` | 664 | Orchestrator — all 8 stages, PipelineContext, error handling |
+| `src/raven/semantic_assets.py` | active | Semantic asset loading, trusted query evidence, domain-pack access |
+| `src/raven/planning/deterministic_planner.py` | active | Deterministic plan formation for trusted/planned lanes |
+| `src/raven/planning/query_plan.py` | active | Typed query plans |
+| `src/raven/sql/ast_builder.py` | active | Narrow AST-style deterministic SQL construction |
+| `src/raven/sql/trino_compiler.py` | active | Deterministic Trino SQL compilation |
 | `src/raven/connectors/openmetadata_mcp.py` | 736 | NEW — OM MCP client, all tool methods, composite operations |
 | `src/raven/connectors/metabase_mcp.py` | 515 | NEW — Metabase MCP client, stdio JSON-RPC subprocess |
 | `src/raven/connectors/pgvector_store.py` | 481 | Embedding store — all 5 tables, search, upsert |
 | `src/raven/retrieval/information_retriever.py` | 305 | Stage 2 — parallel retrieval with OM fallback |
 | `src/raven/schema/schema_selector.py` | 320 | Stage 3 — 4-step schema pruning with OM lineage |
-| `src/raven/generation/sql_generator.py` | 291 | Stage 5 — prompt construction + LLM call |
+| `src/raven/query_families/matcher.py` | active | Trusted query-family matching |
+| `src/raven/query_families/compiler.py` | active | Trusted query-family SQL reuse/rewrites |
 | `src/raven/generation/revision_loop.py` | 154 | Error correction with taxonomy |
 | `src/raven/validation/candidate_selector.py` | 277 | Stage 6 — pairwise tournament selection |
+| `src/raven/validation/query_plan_validator.py` | active | Plan-aware SQL validation |
+| `src/raven/validation/execution_judge.py` | active | Post-execution sanity checks and abstention support |
 | `src/raven/focus.py` | 394 | Focus Mode — domain scoping, document enhancement |
 | `web/routes/__init__.py` | 1,082 | ALL API routes in one file |
 | `web/ui/src/App.js` | 768 | Entire React app in one component |
 | `src/raven/feedback/collector.py` | 263 | Feedback loop + OM write-back |
+
+Historical note:
+- `src/raven/generation/sql_generator.py`, `src/raven/schema/selector.py`, and `src/raven/retrieval/context_retriever.py` still exist but should be treated as legacy or secondary unless the current handoff doc says otherwise.
 
 ### Config Files
 - `config/error_taxonomy.json` — 36 error sub-types across 10 categories (syntax, schema_link, join, filter, aggregation, value, subquery, set_op, others, select, trino_specific)

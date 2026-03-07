@@ -55,6 +55,9 @@ class CandidateGenerator:
         probe_evidence: list[dict],
         glossary_matches: list[dict],
         similar_queries: list[dict],
+        resolved_values: list[dict] | None = None,
+        instruction_matches: list[dict] | None = None,
+        query_plan: dict | None = None,
     ) -> list[str]:
         """
         Generate SQL candidates.
@@ -68,7 +71,13 @@ class CandidateGenerator:
             List of validated SQL strings.
         """
         context = self._build_context(
-            pruned_schema, probe_evidence, glossary_matches, similar_queries,
+            pruned_schema,
+            probe_evidence,
+            glossary_matches,
+            similar_queries,
+            resolved_values or [],
+            instruction_matches or [],
+            query_plan,
         )
 
         is_simple = hasattr(difficulty, "value") and difficulty.value == "SIMPLE"
@@ -110,6 +119,9 @@ class CandidateGenerator:
         probe_evidence: list[dict],
         glossary_matches: list[dict],
         similar_queries: list[dict],
+        resolved_values: list[dict],
+        instruction_matches: list[dict],
+        query_plan: dict | None,
     ) -> dict:
         """Assemble the shared context dict used by all generators."""
         # Probe evidence
@@ -135,16 +147,50 @@ class CandidateGenerator:
         # Few-shot examples
         fewshot_lines: list[str] = []
         for q in similar_queries[:3]:
-            fewshot_lines.append(
-                f"Q: {q.get('question', 'N/A')}\nSQL: {q.get('sql', 'N/A')}"
-            )
+            lines = [
+                f"Q: {q.get('question', 'N/A')}",
+                f"SQL: {q.get('sql', 'N/A')}",
+            ]
+            if q.get("notes"):
+                lines.append(f"Notes: {q['notes']}")
+            if q.get("source"):
+                lines.append(f"Source: {q['source']}")
+            fewshot_lines.append("\n".join(lines))
         fewshot_str = "\n\n".join(fewshot_lines) or "No similar queries available."
+
+        grounding_lines: list[str] = []
+        for item in resolved_values[:8]:
+            sql = item.get("sql", "")
+            if sql:
+                grounding_lines.append(
+                    f"- {item.get('matched_text', item.get('column', 'value'))}: {sql}"
+                )
+        grounding_str = "\n".join(grounding_lines) or "No grounded values."
+
+        instruction_lines: list[str] = []
+        for item in instruction_matches[:8]:
+            line = f"- {item.get('term', 'rule')}: {item.get('definition', '')}"
+            if item.get("sql_fragment"):
+                line += f"\n  SQL hint: {item['sql_fragment']}"
+            instruction_lines.append(line)
+        instruction_str = "\n".join(instruction_lines) or "No instruction matches."
+
+        plan_str = "No deterministic plan available."
+        if query_plan:
+            plan_str = (
+                f"Intent: {query_plan.get('intent', 'unknown')}\n"
+                f"Path: {query_plan.get('path_type', 'unknown')}\n"
+                f"Planned SQL template:\n{query_plan.get('compiled_sql', '')}"
+            )
 
         return {
             "pruned_schema": pruned_schema or "No schema available.",
             "probe_evidence": probe_str,
             "glossary_defs": glossary_str,
             "few_shot": fewshot_str,
+            "grounded_values": grounding_str,
+            "instructions": instruction_str,
+            "query_plan": plan_str,
             "dialect_rules": self.dialect.rules_text,
             "similar_queries": similar_queries,
         }

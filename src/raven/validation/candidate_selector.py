@@ -13,12 +13,14 @@ Only runs for COMPLEX queries with multiple candidates.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 
 from ..connectors.openai_client import OpenAIClient
 from ..connectors.trino_connector import TrinoConnector
+from .confidence_model import ConfidenceModel, ConfidenceSignals
+from .cost_guard import CostGuard
+from .query_plan_validator import QueryPlanValidator
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,26 @@ CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 class CandidateSelector:
     """Select the best SQL candidate from multiple options."""
 
+    _HARD_PLAN_PREFIXES = (
+        "missing_table:",
+        "missing_join:",
+        "missing_group_by",
+        "missing_group_column:",
+        "missing_time_group_by",
+        "missing_time_bucket:",
+        "missing_filter:",
+        "missing_metric_expression:",
+        "missing_limit:",
+        "wrong_limit:",
+        "missing_order:",
+        "missing_time_order",
+    )
+
+    _SOFT_PLAN_PREFIXES = (
+        "missing_metric_alias:",
+        "missing_time_bucket_alias:",
+    )
+
     def __init__(self, openai: OpenAIClient, trino: TrinoConnector):
         self.openai = openai
         self.trino = trino
@@ -36,12 +58,9 @@ class CandidateSelector:
         self._pairwise_prompt = (PROMPTS_DIR / "val_pairwise_compare.txt").read_text()
         self._taxonomy_prompt = (PROMPTS_DIR / "val_error_taxonomy.txt").read_text()
 
-        # Load cost guards
-        cost_path = CONFIG_DIR / "cost_guards.yaml"
-        self._cost_guards = {}
-        if cost_path.exists():
-            import yaml
-            self._cost_guards = yaml.safe_load(cost_path.read_text()) or {}
+        self._cost_guard = CostGuard(trino)
+        self._confidence_model = ConfidenceModel()
+        self._plan_validator = QueryPlanValidator()
 
     async def select_best(
         self,
@@ -50,6 +69,7 @@ class CandidateSelector:
         pruned_schema: str,
         content_awareness: list[dict],
         retrieval_quality: dict | None = None,
+        query_plan: dict | None = None,
     ) -> dict:
         """
         Select best SQL from candidates via pairwise comparison + validation.
@@ -72,10 +92,27 @@ class CandidateSelector:
             errors = await self._taxonomy_check(
                 candidates[0], question, pruned_schema, content_awareness,
             )
+            plan_check = self._plan_validator.validate(candidates[0], query_plan)
+            hard_violations, soft_violations = self._split_plan_violations(plan_check.violations)
+            if hard_violations:
+                return {
+                    "sql": "",
+                    "confidence": "LOW",
+                    "confidence_score": 0.0,
+                    "errors_found": errors,
+                    "plan_violations": plan_check.violations,
+                    "plan_hard_violations": hard_violations,
+                    "plan_soft_violations": soft_violations,
+                    "rejected": True,
+                    "rejection_reasons": hard_violations,
+                }
             confidence, score = self._score_confidence(
                 n_candidates=1,
                 errors_found=bool(errors),
                 cost_ok=True,
+                plan_consistent=plan_check.ok,
+                hard_plan_violations=len(hard_violations),
+                soft_plan_violations=len(soft_violations),
                 retrieval_quality=retrieval_quality,
             )
             return {
@@ -83,24 +120,91 @@ class CandidateSelector:
                 "confidence": confidence,
                 "confidence_score": score,
                 "errors_found": errors,
+                "plan_violations": plan_check.violations,
+                "plan_hard_violations": hard_violations,
+                "plan_soft_violations": soft_violations,
             }
 
+        candidate_pool = list(candidates)
+        if query_plan:
+            plan_results = [
+                self._candidate_plan_summary(candidate, query_plan)
+                for candidate in candidates
+            ]
+            hard_free = [
+                item
+                for item in plan_results
+                if not item["hard_violations"]
+            ]
+            if hard_free:
+                candidate_pool = [
+                    item["sql"]
+                    for item in sorted(
+                        hard_free,
+                        key=lambda item: (
+                            len(item["soft_violations"]),
+                            len(item["plan_violations"]),
+                        ),
+                    )[: max(1, min(2, len(hard_free)))]
+                ]
+            else:
+                best = min(
+                    plan_results,
+                    key=lambda item: (
+                        len(item["hard_violations"]),
+                        len(item["soft_violations"]),
+                        len(item["plan_violations"]),
+                    ),
+                )
+                return {
+                    "sql": "",
+                    "confidence": "LOW",
+                    "confidence_score": 0.0,
+                    "errors_found": [],
+                    "cost_ok": False,
+                    "plan_violations": best["plan_violations"],
+                    "plan_hard_violations": best["hard_violations"],
+                    "plan_soft_violations": best["soft_violations"],
+                    "rejected": True,
+                    "rejection_reasons": best["hard_violations"],
+                }
+
         # Pairwise comparison for 2+ candidates
-        winner = await self._pairwise_select(candidates, question, pruned_schema)
+        winner = await self._pairwise_select(candidate_pool, question, pruned_schema)
 
         # Error taxonomy check on winner
         errors = await self._taxonomy_check(
             winner, question, pruned_schema, content_awareness,
         )
 
-        # Cost guard check via EXPLAIN
-        cost_ok = await self._check_cost_guard(winner)
+        # Cost guard check via EXPLAIN (returns rich dict)
+        cost_result = await self._check_cost_guard(winner)
+        cost_ok = cost_result.get("passed", True)
+        plan_check = self._plan_validator.validate(winner, query_plan)
+        hard_violations, soft_violations = self._split_plan_violations(plan_check.violations)
+        if hard_violations:
+            return {
+                "sql": "",
+                "confidence": "LOW",
+                "confidence_score": 0.0,
+                "errors_found": errors,
+                "cost_ok": cost_ok,
+                "cost_guard": cost_result,
+                "plan_violations": plan_check.violations,
+                "plan_hard_violations": hard_violations,
+                "plan_soft_violations": soft_violations,
+                "rejected": True,
+                "rejection_reasons": hard_violations,
+            }
 
         # Confidence scoring
         confidence, score = self._score_confidence(
-            n_candidates=len(candidates),
+            n_candidates=len(candidate_pool),
             errors_found=bool(errors),
             cost_ok=cost_ok,
+            plan_consistent=plan_check.ok,
+            hard_plan_violations=len(hard_violations),
+            soft_plan_violations=len(soft_violations),
             retrieval_quality=retrieval_quality,
         )
 
@@ -110,6 +214,10 @@ class CandidateSelector:
             "confidence_score": score,
             "errors_found": errors,
             "cost_ok": cost_ok,
+            "cost_guard": cost_result,
+            "plan_violations": plan_check.violations,
+            "plan_hard_violations": hard_violations,
+            "plan_soft_violations": soft_violations,
         }
 
     async def _pairwise_select(
@@ -197,81 +305,63 @@ class CandidateSelector:
 
         return errors
 
-    async def _check_cost_guard(self, sql: str) -> bool:
-        """Check if SQL passes cost guard via EXPLAIN."""
+    async def _check_cost_guard(self, sql: str) -> dict:
+        """Check if SQL passes cost guard via EXPLAIN. Returns full CostGuard result dict."""
         try:
-            plan = await asyncio.to_thread(self.trino.explain, sql)
-            # Check scan size against threshold
-            max_scan_gb = self._cost_guards.get("thresholds", {}).get("max_scan_gb", 500)
-            # Parse EXPLAIN output for estimated data scan (implementation-specific)
-            # For now, EXPLAIN success = cost OK
-            return True
+            return await self._cost_guard.check(sql)
         except Exception as e:
-            logger.warning("EXPLAIN failed for cost guard: %s", e)
-            return False
+            logger.warning("Cost guard check failed: %s", e)
+            return {"passed": True, "explain_ok": False, "estimated_scan_gb": 0.0, "reason": str(e)}
+
+    @staticmethod
+    def _split_plan_violations(violations: list[str]) -> tuple[list[str], list[str]]:
+        hard: list[str] = []
+        soft: list[str] = []
+        for violation in violations:
+            if violation.startswith(CandidateSelector._HARD_PLAN_PREFIXES):
+                hard.append(violation)
+            elif violation.startswith(CandidateSelector._SOFT_PLAN_PREFIXES):
+                soft.append(violation)
+            else:
+                soft.append(violation)
+        return hard, soft
+
+    def _candidate_plan_summary(
+        self,
+        candidate: str,
+        query_plan: dict | None,
+    ) -> dict:
+        plan_check = self._plan_validator.validate(candidate, query_plan)
+        hard_violations, soft_violations = self._split_plan_violations(plan_check.violations)
+        return {
+            "sql": candidate,
+            "plan_violations": plan_check.violations,
+            "hard_violations": hard_violations,
+            "soft_violations": soft_violations,
+            "ok": plan_check.ok,
+        }
 
     @staticmethod
     def _score_confidence(
         n_candidates: int,
         errors_found: bool,
         cost_ok: bool,
+        plan_consistent: bool,
+        hard_plan_violations: int,
+        soft_plan_violations: int,
         retrieval_quality: dict | None = None,
     ) -> tuple[str, float]:
-        """Score confidence as (HIGH/MEDIUM/LOW, numeric_score).
+        """Score confidence via ConfidenceModel (backward-compatible wrapper).
 
-        Scoring breakdown (max 10 points):
-          - Candidates compared:  3→2pts, 2→1pt, 1→0pts
-          - No errors found:      +2pts
-          - Cost guard passed:    +1pt
-          - Entity matches ≥1:    +1pt
-          - Glossary matches ≥1:  +1pt
-          - Similar query sim≥0.7: +2pts, ≥0.5: +1pt
-          - Probe evidence ≥1:    +1pt
-
-        Thresholds: ≥7 HIGH, ≥4 MEDIUM, <4 LOW
+        Returns (band, normalised_score).
         """
-        rq = retrieval_quality or {}
-        score = 0.0
-
-        # 1. Candidate diversity (0-2)
-        if n_candidates >= 3:
-            score += 2.0
-        elif n_candidates >= 2:
-            score += 1.0
-
-        # 2. Error-free (0-2)
-        if not errors_found:
-            score += 2.0
-
-        # 3. Cost guard (0-1)
-        if cost_ok:
-            score += 1.0
-
-        # 4. Entity matches — schema retrieval quality (0-1)
-        if rq.get("entity_match_count", 0) >= 1:
-            score += 1.0
-
-        # 5. Glossary matches — business rule coverage (0-1)
-        if rq.get("glossary_match_count", 0) >= 1:
-            score += 1.0
-
-        # 6. Similar query similarity — few-shot grounding (0-2)
-        top_sim = rq.get("similar_query_top_sim", 0.0)
-        if top_sim >= 0.70:
-            score += 2.0
-        elif top_sim >= 0.50:
-            score += 1.0
-
-        # 7. Probe evidence (0-1) — real data sampling
-        if rq.get("probe_count", 0) >= 1:
-            score += 1.0
-
-        # Normalize to [0, 1] range for external use
-        normalized = round(min(score / 10.0, 1.0), 2)
-
-        # Thresholds calibrated against eval results
-        if score >= 7:
-            return "HIGH", normalized
-        elif score >= 4:
-            return "MEDIUM", normalized
-        return "LOW", normalized
+        model = ConfidenceModel()
+        return model.score_from_selector(
+            n_candidates=n_candidates,
+            errors_found=errors_found,
+            cost_ok=cost_ok,
+            plan_consistent=plan_consistent,
+            hard_plan_violations=hard_plan_violations,
+            soft_plan_violations=soft_plan_violations,
+            retrieval_quality=retrieval_quality,
+        )

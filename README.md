@@ -9,37 +9,67 @@
   <a href="#features">Features</a> •
   <a href="#configuration">Configuration</a> •
   <a href="#contributing">Contributing</a> •
-  <a href="docs/architecture.md">Full Docs</a>
+  <a href="docs/ai-handoff.md">AI Handoff</a>
 </p>
 
 ---
 
-RAVEN is a production-grade text-to-SQL system that converts natural language questions into optimized SQL queries for **Trino-Iceberg** data warehouses. It implements an 8-stage pipeline inspired by state-of-the-art research systems (CHESS, CHASE-SQL, PExA, SQL-of-Thought, QueryWeaver, TriSQL), built from scratch for real-world enterprise environments with 1,000+ tables.
+RAVEN is an accuracy-first text-to-SQL system for **Trino-centered analytics stacks**. It is being built as a semantic, compiler-style backend for `Trino + dbt + Metabase + OpenMetadata` environments, with domain knowledge loaded from configurable semantic assets instead of hardcoded engine logic.
 
-## Why RAVEN?
+## AI / Engineering Handoff
 
-Naive LLM-to-SQL approaches achieve **~6% accuracy** on enterprise-scale schemas (Spider 2.0 benchmark). RAVEN solves this with:
+If you are continuing implementation or evaluating the current architecture, start here:
 
-- **Intelligent routing** — Simple queries take a fast path (2-4s), complex queries get the full pipeline (8-18s)
-- **Graph-based schema linking** — NetworkX traversal discovers bridge tables that vector search misses
-- **Pre-generation probes** — Explores real data before writing SQL, preventing value format mismatches
-- **Multi-candidate generation** — 3 diverse SQL candidates with pairwise selection for complex queries
-- **Classified error repair** — 36-subtype error taxonomy with targeted fix strategies (not generic "fix this")
-- **Business glossary** — Snowflake Cortex-style semantic model with dimensions, metrics, synonyms, verified queries
+- [docs/ai-handoff.md](docs/ai-handoff.md) — current implementation state, active backend path, next work
+- [docs/accuracy-first-10-10-roadmap.md](docs/accuracy-first-10-10-roadmap.md) — target architecture and roadmap
 
-**Target: 82-88% execution accuracy** on enterprise Trino environments.
+Some older markdown files in the repo are historical context and may describe earlier architecture decisions.
+
+## Current Direction
+
+RAVEN is no longer being shaped as a generic "LLM chats with your schema" app.
+
+The active direction is:
+
+- **Semantic contracts first** — metrics, dimensions, relationships, and trusted assets should live in config or domain packs
+- **Deterministic planning first** — the system should form a typed plan before free-form SQL generation
+- **Trusted evidence first** — verified queries, Metabase assets, OpenMetadata signals, and semantic assets should outrank model guesswork
+- **Abstain over guess** — if confidence is weak, the system should clarify or refuse instead of returning elegant wrong answers
+- **OSS engine, configurable domain knowledge** — the Python engine should stay generic; business semantics should be externalized
 
 ## Current Status
 
-| Phase | Status | Description |
-|---|---|---|
-| Phase 1-3 | ✅ Complete | Core 8-stage pipeline, 230 tests, semantic model (57 rules), multi-turn, caching |
-| Phase 5 | ✅ Complete | Production UI (antd, Monaco Editor, Plotly, react-flow) |
-| Phase 6 | 🟡 In Progress | Prometheus metrics, Grafana dashboard, data quality tooling |
-| Phase 4 | ⬜ Planned | SSO auth, rate limiting, Slack bot, admin dashboard |
+As of `March 7, 2026`:
 
-**Eval baseline (30-question sample):** 53.3% pass rate, 93.3% execution success, $1.31/query avg cost.\
-**Key bottleneck:** Schema descriptions are 99.6% empty — data quality population is the highest-leverage improvement.
+- overall technical roadmap: `~70%`
+- accuracy-core architecture: `~92%`
+- production/runtime hardening: `~43%`
+
+Implemented now:
+
+- configurable domain-pack / semantic-model loading
+- semantic contract validation
+- trusted query-family matching and safe query-family reuse
+- deterministic value grounding
+- deterministic join policy and linker
+- deterministic schema seeding plus non-destructive pruning
+- typed query plans
+- deterministic Trino compilation for planned lanes
+- plan-aware validation
+- execution-grounded result sanity checks
+- abstention when plan or result confidence is too weak
+
+Still in progress:
+
+- constrained fallback generation
+- calibrated confidence model
+- benchmark-as-release-gate
+- runtime hardening: shared cache, Trino pooling, vector scaling, distributed-safe state
+
+Current passing suites:
+
+- focused accuracy-first suite: `55 passed`
+- smoke suite: `137 passed`
 
 ## Architecture
 
@@ -48,44 +78,46 @@ User Question (English)
         │
         ▼
 ┌──────────────────────────┐
-│  Stage 1: ROUTER         │  Classify: SIMPLE / COMPLEX / AMBIGUOUS
+│  1. Normalize / Route    │  Understand question shape and scope
 ├──────────────────────────┤
-│  Stage 2: RETRIEVAL      │  Keywords, LSH entities, few-shot, glossary, docs
+│  2. Semantic Assets      │  Contracts, verified queries, Metabase, OM evidence
 ├──────────────────────────┤
-│  Stage 3: SCHEMA         │  4-step pruning + NetworkX graph bridge table discovery
+│  3. Ground / Link        │  Resolve values, tables, joins, required columns
 ├──────────────────────────┤
-│  Stage 4: PROBES         │  Decompose → probe DB → collect evidence [COMPLEX only]
+│  4. Build Query Plan     │  Typed deterministic plan when possible
 ├──────────────────────────┤
-│  Stage 5: GENERATION     │  1 or 3 diverse SQL candidates + Trino dialect rules
+│  5. Compile or Fallback  │  Deterministic SQL first, LLM fallback second
 ├──────────────────────────┤
-│  Stage 6: VALIDATION     │  Pairwise selection + 36-type error taxonomy [COMPLEX only]
+│  6. Validate             │  Check plan consistency before execution
 ├──────────────────────────┤
-│  Stage 7: EXECUTION      │  Run SQL + auto-chart + NL summary
+│  7. Execute / Judge      │  Sanity-check results against plan
 ├──────────────────────────┤
-│  Stage 8: RESPONSE       │  SQL + data + chart + summary + feedback loop
+│  8. Respond or Abstain   │  Return answer, ask clarification, or refuse
 └──────────────────────────┘
 ```
 
-**Simple queries (70%):** Stages 1→2→3→5→7→8 | ~$0.02 | 2-4s  
-**Complex queries (30%):** All 8 stages, 3 candidates | ~$0.10 | 8-18s
+Important note:
 
-See [docs/architecture.md](docs/architecture.md) for the full design document.
+- the repo still contains older staged modules from the original LLM-heavier pipeline
+- the active backend path is increasingly compiler-first and deterministic
+- for the exact current path, read [docs/ai-handoff.md](docs/ai-handoff.md)
+
+For the current implementation state, see [docs/ai-handoff.md](docs/ai-handoff.md). For the target architecture, see [docs/accuracy-first-10-10-roadmap.md](docs/accuracy-first-10-10-roadmap.md).
 
 ## Features
 
 | Feature | Description |
 |---|---|
-| **Difficulty Routing** | TriSQL-inspired classifier routes queries to fast or full pipeline |
-| **LSH Entity Matching** | MinHash locality-sensitive hashing resolves fuzzy entity references locally (no API calls) |
-| **Graph Schema Linking** | NetworkX on dbt lineage + Metabase JOIN patterns discovers bridge tables |
-| **Content Awareness** | Column-level metadata: enums, NULL rates, format patterns, value ranges |
-| **PExA Test Probes** | Decompose question → probe database → use evidence for SQL generation |
-| **CHASE-SQL Multi-Gen** | 3 diverse generators (Divide-and-Conquer, Execution Plan CoT, Few-Shot) |
-| **Error Taxonomy** | 13 categories, 36 sub-types with targeted repair directives |
-| **Semantic Model** | Snowflake Cortex-style YAML: dimensions, metrics, synonyms, verified queries |
-| **Auto Visualization** | Plotly charts auto-detected from query results |
-| **Feedback Loop** | Thumbs up/down → auto-expands few-shot index |
-| **Data Privacy** | Schema metadata goes to LLM; actual row data **never** leaves your infrastructure |
+| **Configurable Domain Packs** | Load semantic assets from `RAVEN_DOMAIN_PACK_PATH` or `RAVEN_SEMANTIC_MODEL_PATH` |
+| **Semantic Contract Validation** | Reject malformed metric, dimension, and relationship definitions at startup |
+| **Trusted Query Families** | Reuse verified SQL and Metabase-backed assets across safe metric, dimension, time, and filter changes |
+| **Value Grounding** | Resolve entity values from semantic enums, content signals, and asset evidence |
+| **Deterministic Join Policy** | Prefer approved join paths over model-discovered joins |
+| **Typed Query Plans** | Build structured plans before SQL for supported intents |
+| **Deterministic SQL Compilation** | Compile planned queries to Trino SQL via internal AST-style builders |
+| **Plan-Aware Validation** | Reject SQL that drops required joins, filters, limits, ordering, or metric intent |
+| **Execution Judge** | Reject results whose row shape or numeric behavior contradicts the plan |
+| **Fallback Generation** | Still present for unresolved cases, but no longer the desired default path |
 
 ## Quickstart
 
@@ -123,7 +155,7 @@ python -m preprocessing.refresh_all
 ### 4. Ask Questions
 
 ```bash
-curl -X POST http://localhost:8000/api/generate \
+curl -X POST http://localhost:8000/api/query \
   -H "Content-Type: application/json" \
   -d '{"question": "How many active users yesterday?"}'
 ```
@@ -134,13 +166,25 @@ Or open `http://localhost:8000` for the web UI.
 
 | File | Purpose |
 |---|---|
-| `.env` | Credentials (Trino, OpenAI, PostgreSQL) |
+| `.env` | Credentials and environment variables |
 | `config/settings.yaml` | Pipeline parameters, thresholds, cache TTL |
 | `config/model_routing.yaml` | LLM model selection per pipeline stage |
 | `config/error_taxonomy.json` | 36-subtype SQL error classification |
 | `config/trino_dialect_rules.txt` | 20 Trino-specific SQL rules |
 | `config/cost_guards.yaml` | Query cost limits, partition requirements |
-| `config/semantic_model.yaml` | Business glossary (dimensions, metrics, synonyms) |
+| `config/semantic_model.yaml` | Single-file semantic asset pack |
+| `config/table_annotations.yaml` | Table-level warnings, notes, and annotations |
+| `config/openmetadata.yaml` | OpenMetadata integration settings |
+| `config/metabase_mcp.yaml` | Metabase integration settings |
+
+Important environment variables:
+
+- `RAVEN_DOMAIN_PACK_PATH`
+  - preferred path for a split semantic/domain pack
+- `RAVEN_SEMANTIC_MODEL_PATH`
+  - fallback path for a single semantic model file
+
+For open-source use, keep business semantics in these assets instead of in engine code.
 
 ## Monitoring
 
@@ -154,12 +198,16 @@ RAVEN exposes a Prometheus-compatible `/api/metrics` endpoint with:
 
 Import the provided Grafana dashboard from `k8s/grafana-dashboard.json`.
 
+Current note:
+
+- the metrics/bootstrap path still needs cleanup before this should be treated as production-hardening complete
+
 ## Project Structure
 
 ```
 raven/
 ├── config/                 # Configuration files
-├── docs/                   # Architecture docs, build guide, decision log
+├── docs/                   # Handoff, roadmap, build notes
 ├── preprocessing/          # Data ingestion scripts (dbt, Metabase, LSH, etc.)
 │   ├── auto_describe.py    # GPT-4o-mini auto table/column descriptions
 │   ├── export_finetuning_data.py  # RLVR fine-tuning data export
@@ -168,14 +216,20 @@ raven/
 ├── scripts/                # Utility scripts (data quality assessment)
 ├── src/raven/              # Core pipeline
 │   ├── pipeline.py         # Main orchestrator
+│   ├── semantic_assets.py  # Semantic asset access layer
 │   ├── metrics.py          # Prometheus instrumentation
+│   ├── contracts/          # Semantic contract loading and validation
 │   ├── router/             # Stage 1: Difficulty classification
 │   ├── retrieval/          # Stage 2: Context retrieval (6 sub-modules)
 │   ├── schema/             # Stage 3: Schema selection (4 sub-modules)
-│   ├── probes/             # Stage 4: PExA test probes
-│   ├── generation/         # Stage 5: SQL generation (3 generators)
-│   ├── validation/         # Stage 6: Selection + error taxonomy
-│   ├── output/             # Stage 7: Execution + charts + summary
+│   ├── grounding/          # Value grounding and entity resolution
+│   ├── query_families/     # Trusted query matching and compilation
+│   ├── planning/           # Typed query plans and deterministic planner
+│   ├── sql/                # Deterministic AST-style SQL compilation
+│   ├── probes/             # Probe-based evidence gathering
+│   ├── generation/         # Fallback generation and revision
+│   ├── validation/         # Plan validation, selection, execution judge
+│   ├── output/             # Execution + charts + summary
 │   ├── connectors/         # Trino, pgvector, OpenAI clients
 │   ├── feedback/           # Rating and correction pipeline
 │   └── safety/             # Query validation, data policy
@@ -187,26 +241,26 @@ raven/
 
 ## Research Foundations
 
-RAVEN synthesizes techniques from multiple state-of-the-art systems:
+RAVEN borrows ideas from multiple systems, but the current implementation is increasingly opinionated around semantic contracts, deterministic planning, and trusted query reuse.
 
 | Source | Contribution to RAVEN |
 |---|---|
 | [CHESS](https://arxiv.org/abs/2405.16755) (Stanford, 71.1% BIRD) | 4-agent pipeline architecture, prompt patterns |
 | [CHASE-SQL](https://arxiv.org/abs/2410.01943) (Apple, 73.0% BIRD) | Multi-candidate generation + pairwise selection |
-| [PExA](https://arxiv.org/abs/2501.xxxxx) (Bloomberg) | Test-probe-before-generate pattern |
-| [SQL-of-Thought](https://arxiv.org/abs/2502.xxxxx) (NeurIPS 2025) | Error taxonomy (36 sub-types) |
+| PExA-style probe-first patterns | Probe-before-generate reasoning |
+| SQL-of-Thought-style taxonomy | Structured error and correction strategy |
 | [QueryWeaver](https://github.com/FalkorDB/QueryWeaver) | Graph-based schema traversal, Content Awareness |
-| [TriSQL](https://www.nature.com/articles/xxxxx) (Nature 2026) | Difficulty-based routing |
+| TriSQL-style routing | Difficulty-based routing concepts |
 | [Snowflake Cortex Analyst](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst) | Semantic View YAML glossary format |
+| Wren / MinusX / Vanna-style patterns | Semantic assets, trusted query memory, evidence-first retrieval |
 
-## Cost Model
+## Notes For Contributors
 
-| Query Type | Cost | Latency |
-|---|---|---|
-| Simple (70% of traffic) | $0.015–0.025 | 2–4s |
-| Complex (30% of traffic) | $0.09–0.14 | 8–18s |
-| Blended average | ~$0.04 | ~5s |
-| Monthly (200 users × 5 queries/day) | ~$1,200 | — |
+- Start with [docs/ai-handoff.md](docs/ai-handoff.md).
+- Do not hardcode company-specific semantics into Python logic.
+- Put business logic into semantic/domain-pack assets.
+- Prefer deterministic planning over expanding the fallback generator.
+- Update the handoff and roadmap docs when the architecture or progress changes materially.
 
 ## Contributing
 

@@ -1,5 +1,11 @@
 # Text-to-SQL Project — Conversation Memory
 
+Archive note:
+
+- This file is historical context, not the current source of truth.
+- Read [docs/ai-handoff.md](docs/ai-handoff.md) first.
+- Then read [docs/accuracy-first-10-10-roadmap.md](docs/accuracy-first-10-10-roadmap.md).
+
 ## Last Updated: March 5, 2026
 
 ---

@@ -274,6 +274,7 @@ _STAGE_LABELS = {
     "router": "Understanding question",
     "retrieval": "Finding relevant context",
     "schema_selection": "Selecting tables",
+    "planning": "Building query plan",
     "probes": "Running test probes",
     "generation": "Generating SQL",
     "validation": "Validating candidates",
@@ -1079,4 +1080,3 @@ async def metabase_list_collections(body: dict = None):
     overrides = _extract_browser_overrides(body) if body else {}
     client = _get_metabase_client(overrides)
     return {"collections": await client.list_collections()}
-

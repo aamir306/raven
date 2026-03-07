@@ -7,7 +7,7 @@
 #   - Metabase Q-SQL extraction (list_cards replaces direct PostgreSQL)
 
 metabase:
-  url: "${METABASE_URL}"                    # https://metabase.pw.live
+  url: "${METABASE_URL}"                    # https://metabase.your-company.com
   api_key: "${METABASE_API_KEY}"            # mb_xxxxxxx (recommended over session ID)
   session_id: "${METABASE_SESSION_ID}"      # Optional fallback auth
 

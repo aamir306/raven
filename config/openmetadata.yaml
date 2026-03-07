@@ -8,8 +8,8 @@
 #   - Write-back: test cases, lineage, glossary terms, knowledge articles
 
 openmetadata:
-  url: "${OPENMETADATA_URL}"                # https://openmetadata.pw.live
-  pat: "${OPENMETADATA_PAT}"                # Personal Access Token
+  url: "${OPENMETADATA_URL}"                # https://openmetadata.your-company.com
+  pat: "${OPENMETADATA_PAT}"                # Service token / bot JWT
 
   # Which features to use from OpenMetadata
   features:

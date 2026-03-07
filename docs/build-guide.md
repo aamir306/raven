@@ -1,5 +1,12 @@
 # RAVEN — Build Guide
 
+Archive note:
+
+- This file is a historical build sequence and is partly stale.
+- Use [docs/ai-handoff.md](./ai-handoff.md) for the current implementation state.
+- Use [docs/accuracy-first-10-10-roadmap.md](./accuracy-first-10-10-roadmap.md) for the active roadmap.
+- Some references below point to earlier planning documents and should not be treated as current architecture authority.
+
 ## Step-by-step implementation for Claude Code / developers
 
 ---
@@ -13,10 +20,13 @@ This is the step-by-step execution guide. Follow it sequentially. Each section h
 - **Validation** — how to verify it works before moving on
 
 **Reference files (read these first):**
-- `injection/references/text-to-sql-v4-final.md` — Full architecture + design details
-- `injection/references/conversation-memory.md` — Decision context + research findings
+- `docs/ai-handoff.md` — current implementation state and active backend path
+- `docs/accuracy-first-10-10-roadmap.md` — target architecture and roadmap
 - `config/error_taxonomy.json` — SQL error classification (36 sub-types)
 - `config/trino_dialect_rules.txt` — 20 Trino SQL rules
+
+Historical note:
+- older `injection/references/...` planning documents were part of an earlier workflow and should be treated as archive context only if they still exist locally
 
 ---
 

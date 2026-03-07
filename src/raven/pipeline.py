@@ -13,10 +13,8 @@ import asyncio
 import json
 import logging
 import pickle
-import re
 import time
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -24,18 +22,26 @@ from .connectors.openai_client import OpenAIClient
 from .connectors.pgvector_store import PgVectorStore
 from .connectors.trino_connector import TrinoConnector
 from .connectors.openmetadata_mcp import OpenMetadataMCPClient, OpenMetadataConfig
-from .focus import FocusContext, suggest_enhancements, parse_metabase_url
+from .focus import FocusContext, suggest_enhancements
 from .router.classifier import DifficultyClassifier, Difficulty
 from .retrieval.information_retriever import InformationRetriever
 from .schema.schema_selector import SchemaSelector
 from .probes.probe_runner import ProbeRunner
 from .generation.candidate_generator import CandidateGenerator
+from .generation.constrained_sql import ConstrainedSQLGenerator
 from .validation.candidate_selector import CandidateSelector
+from .validation.confidence_model import ConfidenceModel
+from .validation.cost_guard import CostGuard
+from .validation.execution_judge import ExecutionJudge
 from .output.renderer import OutputRenderer
 from .feedback.collector import FeedbackCollector
 from .conversation import ConversationManager
 from .cache import QueryCache
+from .grounding import ValueResolver
+from .grounding.ambiguity_policy import AmbiguityPolicy
 from .metrics import METRICS
+from .planning import DeterministicPlanner
+from .semantic_assets import SemanticModelStore
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +69,20 @@ class PipelineContext:
     doc_snippets: list[dict] = field(default_factory=list)
     content_awareness: list[dict] = field(default_factory=list)
     om_table_candidates: list[dict] = field(default_factory=list)
+    preferred_tables: list[str] = field(default_factory=list)
+    trusted_query_match: dict | None = None
+    query_family_match: dict | None = None
+    instruction_matches: list[dict] = field(default_factory=list)
+    metabase_evidence: list[dict] = field(default_factory=list)
+    resolved_values: list[dict] = field(default_factory=list)
+    grounding_ambiguities: list[dict] = field(default_factory=list)
+    query_plan: dict | None = None
 
     # Stage 3: Schema Selection
     candidate_columns: list[str] = field(default_factory=list)
     selected_tables: list[str] = field(default_factory=list)
     pruned_schema: str = ""
-    join_paths: list[str] = field(default_factory=list)
+    join_paths: list[Any] = field(default_factory=list)
     quality_warnings: list[dict] = field(default_factory=list)
 
     # Stage 4: Test Probes
@@ -80,6 +94,7 @@ class PipelineContext:
     # Stage 6: Selection + Validation
     selected_sql: str = ""
     confidence: str = "LOW"  # HIGH / MEDIUM / LOW
+    validation_issues: list[str] = field(default_factory=list)
 
     # Stage 7: Execute + Render
     result_df: Any = None
@@ -132,17 +147,31 @@ class Pipeline:
 
         # Query result cache
         self.cache = QueryCache(enabled=cache_enabled, ttl_seconds=cache_ttl)
+        self.semantic_assets = SemanticModelStore()
+        self._data_keyword_pattern = self.semantic_assets.keyword_pattern()
 
         # Initialize stage handlers (decomposed orchestrators)
         self.router = DifficultyClassifier(openai)
         self.retriever = InformationRetriever(openai, pgvector, om_client=self.om_client)
-        self.schema_selector = SchemaSelector(openai, pgvector, om_client=self.om_client)
+        self.schema_selector = SchemaSelector(
+            openai,
+            pgvector,
+            om_client=self.om_client,
+            semantic_store=self.semantic_assets,
+        )
         self.probe_runner = ProbeRunner(openai, trino)
         self.generator = CandidateGenerator(openai, trino)
         self.validator = CandidateSelector(openai, trino)
+        self.execution_judge = ExecutionJudge()
+        self.cost_guard = CostGuard(trino)
+        self.confidence_model = ConfidenceModel()
         self.renderer = OutputRenderer(openai, trino)
         self.feedback = FeedbackCollector(pgvector, openai, om_client=self.om_client)
         self.conversation = ConversationManager(openai, pgvector)
+        self.value_resolver = ValueResolver(self.semantic_assets)
+        self.ambiguity_policy = AmbiguityPolicy()
+        self.constrained_sql = ConstrainedSQLGenerator()
+        self.planner = DeterministicPlanner(self.semantic_assets)
 
         # Load preprocessing artifacts from data/ directory
         self._load_artifacts()
@@ -288,24 +317,54 @@ class Pipeline:
             # ── Stage 3: Schema Selection ──────────────────────────────
             await self._run_stage("schema_selection", self._stage_schema, ctx, stage_hook)
 
-            # ── Stage 4: Test Probes (complex only) ────────────────────
-            if ctx.difficulty == Difficulty.COMPLEX:
+            # ── Stage 4: Deterministic Planning ───────────────────────
+            await self._run_stage("planning", self._stage_planning, ctx, stage_hook)
+
+            # ── Stage 5: Test Probes (complex only, unresolved path) ──
+            if ctx.difficulty == Difficulty.COMPLEX and not ctx.query_plan:
                 await self._run_stage("probes", self._stage_probes, ctx, stage_hook)
 
-            # ── Stage 5: SQL Generation ────────────────────────────────
+            # ── Stage 6: SQL Generation ────────────────────────────────
             await self._run_stage("generation", self._stage_generation, ctx, stage_hook)
 
-            # ── Stage 6: Selection + Validation (complex only) ─────────
+            # ── Stage 7: Selection + Validation (complex only) ─────────
             if ctx.difficulty == Difficulty.COMPLEX and len(ctx.sql_candidates) > 1:
                 await self._run_stage("validation", self._stage_validation, ctx, stage_hook)
+                if not ctx.selected_sql:
+                    ctx.stage_timings["total"] = time.monotonic() - pipeline_start
+                    ctx.total_cost = self.openai.get_cost_summary().get("total_usd", 0.0)
+                    METRICS.query_completed(
+                        difficulty=ctx.difficulty.value if ctx.difficulty else "unknown",
+                        status="ambiguous",
+                        latency=ctx.stage_timings["total"],
+                        cost=ctx.total_cost,
+                        confidence=ctx.confidence,
+                    )
+                    return self._ambiguous_response(ctx)
             else:
                 ctx.selected_sql = ctx.sql_candidates[0] if ctx.sql_candidates else ""
-                ctx.confidence = "MEDIUM"
+                if ctx.query_plan:
+                    ctx.confidence = ctx.query_plan.get("confidence", "MEDIUM")
+                elif ctx.trusted_query_match and ctx.trusted_query_match.get("exact_match"):
+                    ctx.confidence = "HIGH"
+                else:
+                    ctx.confidence = "MEDIUM"
 
-            # ── Stage 7: Execute + Render ──────────────────────────────
+            # ── Stage 8: Execute + Render ──────────────────────────────
             await self._run_stage("execute_render", self._stage_execute, ctx, stage_hook)
+            if not ctx.selected_sql:
+                ctx.stage_timings["total"] = time.monotonic() - pipeline_start
+                ctx.total_cost = self.openai.get_cost_summary().get("total_usd", 0.0)
+                METRICS.query_completed(
+                    difficulty=ctx.difficulty.value if ctx.difficulty else "unknown",
+                    status="ambiguous",
+                    latency=ctx.stage_timings["total"],
+                    cost=ctx.total_cost,
+                    confidence=ctx.confidence,
+                )
+                return self._ambiguous_response(ctx)
 
-            # ── Stage 8: Respond + Feedback (async, non-blocking) ──────
+            # ── Stage 9: Respond + Feedback (async, non-blocking) ──────
             asyncio.create_task(self._stage_feedback(ctx))
 
             # ── Generate follow-up suggestions (non-blocking) ──────────
@@ -362,33 +421,9 @@ class Pipeline:
 
     # ── Stage Implementations ──────────────────────────────────────────
 
-    # Data-domain keywords — if any of these appear in a question the router
-    # classified as AMBIGUOUS, we override and force SIMPLE to avoid false
-    # rejections.  Covers PW ed-tech + analytics domain terms.
-    _DATA_KEYWORDS = re.compile(
-        r'\b('
-        r'revenue|payments?|orders?|transactions?|sales?|refunds?|coupons?|discounts?|'
-        r'users?|students?|teachers?|mentors?|educators?|learners?|'
-        r'batch(?:es)?|courses?|class(?:es)?|lectures?|subjects?|'
-        r'enrollments?|enroll|registrations?|subscriptions?|'
-        r'exams?|tests?|quiz(?:zes)?|assignments?|homework|scores?|results?|marks?|ranks?|'
-        r'attendance|sessions?|logins?|signups?|otp|'
-        r'videos?|content|downloads?|uploads?|streams?|'
-        r'iit|jee|neet|gate|upsc|'
-        r'centers?|centres?|institutes?|schools?|colleges?|'
-        r'gateways?|razorpay|paytm|phonepe|stripe|'
-        r'dau|mau|wau|retention|churn|funnel|conversions?|'
-        r'android|ios|web|platforms?|devices?|'
-        r'count|total|average|sum|max|min|top|bottom|'
-        r'daily|weekly|monthly|yearly|trends?|'
-        r'schemas?|tables?|columns?|rows?'
-        r')\b',
-        re.IGNORECASE,
-    )
-
     def _has_data_keywords(self, question: str) -> bool:
-        """Return True if the question contains recognisable data-domain keywords."""
-        return bool(self._DATA_KEYWORDS.search(question))
+        """Return True if the question contains configurable semantic/domain keywords."""
+        return bool(self._data_keyword_pattern.search(question))
 
     async def _stage_router(self, ctx: PipelineContext) -> None:
         ctx.difficulty = await self.router.classify(ctx.user_question)
@@ -408,6 +443,34 @@ class Pipeline:
         ctx.content_awareness = result.get("content_awareness", [])
         ctx.om_table_candidates = result.get("om_table_candidates", [])
 
+        semantic = self.semantic_assets.retrieve(ctx.user_question, focus=ctx.focus)
+        ctx.trusted_query_match = semantic.get("trusted_query")
+        ctx.query_family_match = semantic.get("query_family_match")
+        ctx.preferred_tables = semantic.get("preferred_tables", [])
+        ctx.instruction_matches = semantic.get("instruction_matches", [])
+        ctx.metabase_evidence = semantic.get("metabase_evidence", [])
+        ctx.similar_queries = self._merge_similar_queries(
+            semantic.get("verified_queries", []),
+            ctx.similar_queries,
+        )
+        ctx.glossary_matches = self._merge_glossary_matches(
+            semantic.get("glossary_matches", []),
+            ctx.glossary_matches,
+        )
+        ctx.doc_snippets = self._merge_doc_snippets(
+            semantic.get("doc_snippets", []),
+            ctx.doc_snippets,
+        )
+        grounding = self.value_resolver.resolve(
+            question=ctx.user_question,
+            content_awareness=ctx.content_awareness,
+            preferred_tables=ctx.preferred_tables,
+            instruction_matches=ctx.instruction_matches,
+            focus=ctx.focus,
+        )
+        ctx.resolved_values = [flt.to_dict() for flt in grounding.filters]
+        ctx.grounding_ambiguities = list(grounding.ambiguities)
+
     async def _stage_schema(self, ctx: PipelineContext) -> None:
         result = await self.schema_selector.select(
             question=ctx.user_question,
@@ -417,12 +480,97 @@ class Pipeline:
             doc_snippets=ctx.doc_snippets,
             content_awareness=ctx.content_awareness,
             om_table_candidates=ctx.om_table_candidates,
+            preferred_tables=ctx.preferred_tables,
+            metabase_evidence=ctx.metabase_evidence,
         )
         ctx.candidate_columns = result.get("candidate_columns", [])
         ctx.selected_tables = result.get("selected_tables", [])
         ctx.pruned_schema = result.get("pruned_schema", "")
         ctx.join_paths = result.get("join_paths", [])
         ctx.quality_warnings = result.get("quality_warnings", [])
+
+    async def _stage_planning(self, ctx: PipelineContext) -> None:
+        if ctx.trusted_query_match and ctx.trusted_query_match.get("exact_match"):
+            ctx.query_plan = {
+                "path_type": "TRUSTED_QUERY",
+                "intent": "TRUSTED_QUERY",
+                "confidence": "HIGH",
+                "compiled_sql": ctx.trusted_query_match.get("sql", ""),
+                "evidence": [],
+            }
+            return
+
+        refined_family_match = self.semantic_assets.match_query_family(
+            question=ctx.user_question,
+            verified_queries=ctx.similar_queries,
+            metabase_evidence=ctx.metabase_evidence,
+            resolved_filters=ctx.resolved_values,
+            glossary_matches=ctx.glossary_matches,
+        )
+        if refined_family_match:
+            current_score = float((ctx.query_family_match or {}).get("similarity", 0.0))
+            refined_score = float(refined_family_match.get("similarity", 0.0))
+            if refined_score >= current_score:
+                ctx.query_family_match = refined_family_match
+
+        if ctx.query_family_match and ctx.query_family_match.get("sql"):
+            ctx.query_plan = {
+                "path_type": "QUERY_FAMILY",
+                "intent": "QUERY_FAMILY",
+                "confidence": "HIGH" if ctx.query_family_match.get("source") == "metabase" else "MEDIUM",
+                "compiled_sql": ctx.query_family_match.get("sql", ""),
+                "source_tables": ctx.query_family_match.get("tables_used", []),
+                "evidence": [
+                    {
+                        "kind": "query_family",
+                        "source": ctx.query_family_match.get("source", "semantic_model"),
+                        "detail": ctx.query_family_match.get("question", ""),
+                        "score": ctx.query_family_match.get("similarity", 0.0),
+                    }
+                ],
+            }
+            if not ctx.selected_tables:
+                ctx.selected_tables = list(ctx.query_family_match.get("tables_used", []))
+            return
+
+        if ctx.grounding_ambiguities:
+            decision = self.ambiguity_policy.evaluate(
+                ambiguities=ctx.grounding_ambiguities,
+                resolved_filters=ctx.resolved_values,
+                focus=ctx.focus,
+            )
+            if decision.action == "clarify":
+                ctx.validation_issues.extend(decision.suggestions)
+                ctx.query_plan = None
+                return
+            elif decision.action == "abstain":
+                ctx.validation_issues.append(decision.reason)
+                ctx.query_plan = None
+                return
+            # "pick_best" — proceed with deterministic planning
+
+        plan = self.planner.plan(
+            question=ctx.user_question,
+            glossary_matches=ctx.glossary_matches,
+            selected_tables=ctx.selected_tables,
+            preferred_tables=ctx.preferred_tables,
+            resolved_filters=ctx.resolved_values,
+            instruction_matches=ctx.instruction_matches,
+            om_table_candidates=ctx.om_table_candidates,
+            metabase_evidence=ctx.metabase_evidence,
+            join_paths=ctx.join_paths,
+        )
+        if plan:
+            ctx.query_plan = plan.to_dict()
+            ctx.selected_tables = list(
+                dict.fromkeys(ctx.selected_tables or plan.source_tables or [plan.table])
+            )
+            logger.info(
+                "Deterministic plan selected: %s on %s for '%s'",
+                plan.intent,
+                plan.table,
+                ctx.user_question[:60],
+            )
 
     async def _stage_probes(self, ctx: PipelineContext) -> None:
         ctx.probe_evidence = await self.probe_runner.run_probes(
@@ -432,6 +580,25 @@ class Pipeline:
         )
 
     async def _stage_generation(self, ctx: PipelineContext) -> None:
+        if ctx.trusted_query_match and ctx.trusted_query_match.get("exact_match"):
+            ctx.sql_candidates = [ctx.trusted_query_match.get("sql", "")]
+            if not ctx.selected_tables:
+                ctx.selected_tables = list(ctx.trusted_query_match.get("tables_used", []))
+            logger.info(
+                "Using exact trusted query match from %s for '%s'",
+                ctx.trusted_query_match.get("source", "unknown"),
+                ctx.user_question[:60],
+            )
+            return
+        if ctx.query_plan and ctx.query_plan.get("compiled_sql"):
+            ctx.sql_candidates = [ctx.query_plan.get("compiled_sql", "")]
+            logger.info(
+                "Using deterministic plan %s for '%s'",
+                ctx.query_plan.get("intent", "unknown"),
+                ctx.user_question[:60],
+            )
+            return
+
         ctx.sql_candidates = await self.generator.generate(
             question=ctx.user_question,
             difficulty=ctx.difficulty,
@@ -439,7 +606,17 @@ class Pipeline:
             probe_evidence=ctx.probe_evidence,
             glossary_matches=ctx.glossary_matches,
             similar_queries=ctx.similar_queries,
+            resolved_values=ctx.resolved_values,
+            instruction_matches=ctx.instruction_matches,
+            query_plan=ctx.query_plan,
         )
+
+        # Constrained fallback: structural checks on LLM-generated SQL
+        if ctx.sql_candidates:
+            ctx.sql_candidates = self.constrained_sql.constrain(
+                raw_candidates=ctx.sql_candidates,
+                selected_tables=ctx.selected_tables,
+            )
 
     async def _stage_validation(self, ctx: PipelineContext) -> None:
         # Build retrieval quality signals for confidence calibration
@@ -462,11 +639,37 @@ class Pipeline:
             pruned_schema=ctx.pruned_schema,
             content_awareness=ctx.content_awareness,
             retrieval_quality=retrieval_quality,
+            query_plan=ctx.query_plan,
         )
         ctx.selected_sql = result.get("sql", ctx.sql_candidates[0])
         ctx.confidence = result.get("confidence", "MEDIUM")
+        ctx.validation_issues = list(
+            result.get("rejection_reasons")
+            or result.get("plan_hard_violations")
+            or result.get("plan_violations")
+            or []
+        )
 
     async def _stage_execute(self, ctx: PipelineContext) -> None:
+        # ── Pre-execution cost guard (for all paths) ───────────────────
+        cost_guard_result: dict | None = None
+        if ctx.selected_sql:
+            try:
+                cost_guard_result = await self.cost_guard.check(ctx.selected_sql)
+                if not cost_guard_result.get("passed", True):
+                    logger.warning(
+                        "Cost guard blocked query: %s",
+                        cost_guard_result.get("reason", "unknown"),
+                    )
+                    ctx.validation_issues.append(
+                        f"cost_guard_blocked:{cost_guard_result.get('reason', 'expensive')}"
+                    )
+                    ctx.confidence = "LOW"
+                    ctx.selected_sql = ""
+                    return
+            except Exception as e:
+                logger.debug("Cost guard check failed (non-blocking): %s", e)
+
         # Execute SQL
         if ctx.selected_sql:
             try:
@@ -478,6 +681,63 @@ class Pipeline:
                 logger.warning("SQL execution failed: %s", e)
                 ctx.result_df = None
                 ctx.row_count = 0
+
+        judge_passed: bool | None = None
+        judge_issues: list[str] = []
+        if ctx.result_df is not None:
+            judge = self.execution_judge.judge(ctx.result_df, ctx.query_plan)
+            judge_passed = judge.passed
+            judge_issues = judge.issues
+            if not judge.passed:
+                ctx.validation_issues = list(dict.fromkeys([*ctx.validation_issues, *judge.issues]))
+                ctx.confidence = "LOW"
+                ctx.result_df = None
+                ctx.row_count = 0
+                ctx.selected_sql = ""
+                logger.info(
+                    "Execution judge rejected result for '%s': %s",
+                    ctx.user_question[:60],
+                    ", ".join(judge.issues[:5]),
+                )
+                return
+
+        # ── Calibrated confidence (post-execution) ────────────────────
+        top_sim = 0.0
+        if ctx.similar_queries:
+            top_sim = max(sq.get("similarity", 0.0) for sq in ctx.similar_queries)
+
+        conf_result = self.confidence_model.score_pipeline(
+            ctx_confidence=ctx.confidence,
+            query_plan=ctx.query_plan,
+            validation_issues=ctx.validation_issues,
+            execution_judge_passed=judge_passed,
+            execution_judge_issues=judge_issues,
+            entity_match_count=len(ctx.entity_matches),
+            glossary_match_count=len(ctx.glossary_matches),
+            similar_query_top_sim=top_sim,
+            table_count=len(ctx.selected_tables),
+            probe_count=len(ctx.probe_evidence),
+            grounding_ambiguity_count=len(ctx.grounding_ambiguities),
+            quality_warning_count=len(ctx.quality_warnings),
+            has_trusted_query=bool(
+                ctx.trusted_query_match and ctx.trusted_query_match.get("exact_match")
+            ),
+            has_query_family=bool(ctx.query_family_match and ctx.query_family_match.get("sql")),
+            cost_guard_result=cost_guard_result,
+        )
+        ctx.confidence = conf_result.band
+        if conf_result.should_abstain:
+            logger.info(
+                "Confidence model recommends ABSTAIN (score=%.3f) for '%s'",
+                conf_result.score, ctx.user_question[:60],
+            )
+            ctx.validation_issues.append(
+                f"confidence_abstain:score={conf_result.score:.3f}"
+            )
+            ctx.result_df = None
+            ctx.row_count = 0
+            ctx.selected_sql = ""
+            return
 
         # Render output (chart detection + NL summary)
         if ctx.result_df is not None and ctx.row_count > 0:
@@ -571,6 +831,9 @@ class Pipeline:
                         detail["glossary"] = len(ctx.glossary_matches)
                     elif name == "schema_selection":
                         detail["tables"] = ctx.selected_tables[:5] if ctx.selected_tables else []
+                    elif name == "planning" and ctx.query_plan:
+                        detail["intent"] = ctx.query_plan.get("intent", "")
+                        detail["path_type"] = ctx.query_plan.get("path_type", "")
                     elif name == "generation":
                         detail["candidates"] = len(ctx.sql_candidates)
                     elif name == "execute_render":
@@ -602,6 +865,18 @@ class Pipeline:
                 "entity_matches": len(ctx.entity_matches),
                 "glossary_matches": len(ctx.glossary_matches),
                 "similar_queries": len(ctx.similar_queries),
+                "preferred_tables": ctx.preferred_tables[:8],
+                "resolved_values": ctx.resolved_values[:10],
+                "grounding_ambiguities": ctx.grounding_ambiguities[:5],
+                "instruction_matches": ctx.instruction_matches[:8],
+                "metabase_evidence": ctx.metabase_evidence[:5],
+                "query_plan": ctx.query_plan,
+                "trusted_query_source": (
+                    ctx.trusted_query_match.get("source")
+                    if ctx.trusted_query_match
+                    else None
+                ),
+                "query_family_match": ctx.query_family_match,
             },
             # Phase 5: follow-up suggestions (populated by Stage 8)
             "suggestions": ctx.follow_up_suggestions,
@@ -611,6 +886,53 @@ class Pipeline:
             # Phase 6: OpenMetadata quality warnings
             "quality_warnings": ctx.quality_warnings,
         }
+
+    @staticmethod
+    def _merge_similar_queries(primary: list[dict], secondary: list[dict]) -> list[dict]:
+        merged = []
+        seen: set[tuple[str, str]] = set()
+        for item in sorted(
+            [*primary, *secondary],
+            key=lambda entry: (entry.get("exact_match", False), entry.get("similarity", 0.0)),
+            reverse=True,
+        ):
+            key = (
+                " ".join(item.get("question", "").lower().split()),
+                " ".join(item.get("sql", "").lower().split()),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+        return merged[:6]
+
+    @staticmethod
+    def _merge_glossary_matches(primary: list[dict], secondary: list[dict]) -> list[dict]:
+        merged = []
+        seen: set[str] = set()
+        for item in sorted(
+            [*primary, *secondary],
+            key=lambda entry: entry.get("similarity", 0.0),
+            reverse=True,
+        ):
+            term = item.get("term", "").lower()
+            if not term or term in seen:
+                continue
+            seen.add(term)
+            merged.append(item)
+        return merged[:10]
+
+    @staticmethod
+    def _merge_doc_snippets(primary: list[dict], secondary: list[dict]) -> list[dict]:
+        merged = []
+        seen: set[tuple[str, str]] = set()
+        for item in [*primary, *secondary]:
+            key = (item.get("source", ""), item.get("content", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+        return merged[:10]
 
     def _ambiguous_response(self, ctx: PipelineContext) -> dict:
         # Build "Did you mean?" suggestions from retrieval results
@@ -641,14 +963,26 @@ class Pipeline:
         message = (
             "Your question is ambiguous. Could you be more specific about what data you need?"
         )
+        if ctx.validation_issues:
+            message = (
+                "I couldn't validate the SQL or result confidently enough to return it. "
+                "Try narrowing the metric, dimension, or time range."
+            )
         if suggestions:
-            message = "I'm not sure what you mean. Did you mean one of these?"
+            if ctx.validation_issues:
+                message = (
+                    "I couldn't validate the SQL or result confidently enough to return it. "
+                    "One of these narrower questions may work:"
+                )
+            else:
+                message = "I'm not sure what you mean. Did you mean one of these?"
 
         return {
             "status": "ambiguous",
             "question": ctx.user_question,
             "message": message,
             "suggestions": suggestions,
+            "validation_issues": ctx.validation_issues[:5],
             "difficulty": "AMBIGUOUS",
             "timings": ctx.stage_timings,
             "cost": ctx.total_cost,
