@@ -282,22 +282,22 @@ class TestUIFileStructure(unittest.TestCase):
         self.assertTrue((self.BASE / "src" / "App.css").exists())
 
     def test_component_query_input(self):
-        self.assertTrue((self.BASE / "src" / "components" / "QueryInput.js").exists())
+        self.assertTrue((self.BASE / "src" / "components" / "Landing.js").exists())
 
     def test_component_sql_display(self):
-        self.assertTrue((self.BASE / "src" / "components" / "SQLDisplay.js").exists())
+        self.assertTrue((self.BASE / "src" / "components" / "tabs" / "SQLTab.js").exists())
 
     def test_component_data_table(self):
-        self.assertTrue((self.BASE / "src" / "components" / "DataTable.js").exists())
+        self.assertTrue((self.BASE / "src" / "components" / "tabs" / "DataTab.js").exists())
 
     def test_component_chart_panel(self):
-        self.assertTrue((self.BASE / "src" / "components" / "ChartPanel.js").exists())
+        self.assertTrue((self.BASE / "src" / "components" / "tabs" / "ChartTab.js").exists())
 
     def test_component_summary(self):
-        self.assertTrue((self.BASE / "src" / "components" / "Summary.js").exists())
+        self.assertTrue((self.BASE / "src" / "components" / "tabs" / "SummaryTab.js").exists())
 
     def test_component_feedback_panel(self):
-        self.assertTrue((self.BASE / "src" / "components" / "FeedbackPanel.js").exists())
+        self.assertTrue((self.BASE / "src" / "components" / "FeedbackBar.js").exists())
 
 
 # ═══════════════════════════════════════════════════════════════════════

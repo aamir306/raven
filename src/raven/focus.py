@@ -7,9 +7,13 @@ Supports manual documents, auto-generated dashboard focuses, and living-document
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
+import os
 import re
+import tempfile
+import threading
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -44,6 +48,15 @@ class FocusContext:
     dashboard_cards: list[dict] = field(default_factory=list)
     dashboard_filters: list[dict] = field(default_factory=list)
 
+    # Document metadata
+    document_kind: str = ""
+    domain: str = ""
+    owner: str = ""
+    trust_level: str = "reference"
+    related_metrics: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    deprecated: bool = False
+
     # Computed stats
     table_count: int = 0
     rule_count: int = 0
@@ -68,6 +81,16 @@ class FocusDocument:
     name: str = ""
     description: str = ""
     type: str = "manual"  # 'manual' | 'auto_dashboard' | 'uploaded'
+    doc_kind: str = "reference"
+    domain: str = ""
+    owner: str = ""
+    trust_level: str = "reference"
+    related_metrics: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    source_filename: str = ""
+    version: str = ""
+    effective_date: str = ""
+    deprecated: bool = False
 
     tables: list[str] = field(default_factory=list)
     glossary_terms: list[dict] = field(default_factory=list)
@@ -107,6 +130,13 @@ class FocusDocument:
             verified_queries=self.verified_queries,
             business_rules=self.business_rules,
             column_notes=self.column_notes,
+            document_kind=self.doc_kind,
+            domain=self.domain,
+            owner=self.owner,
+            trust_level=self.trust_level,
+            related_metrics=self.related_metrics,
+            tags=self.tags,
+            deprecated=self.deprecated,
             table_count=self.table_count,
             rule_count=len(self.business_rules),
             query_count=len(self.verified_queries),
@@ -114,11 +144,49 @@ class FocusDocument:
 
 
 class FocusStore:
-    """JSON-file backed store for focus documents and suggestions."""
+    """Thread-safe JSON-file backed store for focus documents and suggestions.
+
+    Safety guarantees:
+    - In-process mutex via threading.Lock (guards concurrent coroutines / threads)
+    - Atomic writes via tempfile + os.replace (no partial-write corruption)
+    - File-level advisory lock via fcntl.flock (guards multi-process access)
+    """
 
     def __init__(self, base_dir: Path | None = None):
         self.base_dir = base_dir or FOCUS_DIR
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        self._suggestions_file = self.base_dir / "_suggestions.json"
+        self._lock = threading.Lock()
+
+    # ── Atomic file helpers ────────────────────────────────────
+
+    @staticmethod
+    def _atomic_write(path: Path, data: str) -> None:
+        """Write data to a temp file then atomically replace the target."""
+        dir_ = path.parent
+        fd, tmp = tempfile.mkstemp(dir=str(dir_), suffix=".tmp")
+        try:
+            os.write(fd, data.encode())
+            os.fsync(fd)
+            os.close(fd)
+            os.replace(tmp, str(path))
+        except BaseException:
+            os.close(fd) if not os.get_inheritable(fd) else None
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
+    @staticmethod
+    def _locked_read(path: Path) -> str:
+        """Read file content under a shared (read) advisory lock."""
+        with open(path, "r") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+            try:
+                return f.read()
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
     # ── Document CRUD ──────────────────────────────────────────
 
@@ -127,116 +195,138 @@ class FocusStore:
 
     def list_documents(self) -> list[dict]:
         """Return all focus documents (summary form)."""
-        docs = []
-        for p in sorted(self.base_dir.glob("*.json")):
-            if p.name.startswith("_"):
-                continue
-            try:
-                data = json.loads(p.read_text())
-                docs.append(data)
-            except Exception:
-                logger.warning("Corrupt focus doc: %s", p)
-        return docs
+        with self._lock:
+            docs = []
+            for p in sorted(self.base_dir.glob("*.json")):
+                if p.name.startswith("_"):
+                    continue
+                try:
+                    data = json.loads(self._locked_read(p))
+                    docs.append(data)
+                except Exception:
+                    logger.warning("Corrupt focus doc: %s", p)
+            return docs
 
     def get_document(self, doc_id: str) -> FocusDocument | None:
         p = self._doc_path(doc_id)
         if not p.exists():
             return None
-        try:
-            return FocusDocument.from_dict(json.loads(p.read_text()))
-        except Exception:
-            return None
+        with self._lock:
+            try:
+                return FocusDocument.from_dict(json.loads(self._locked_read(p)))
+            except Exception:
+                return None
 
     def create_document(self, doc: FocusDocument) -> FocusDocument:
-        doc.updated_at = datetime.now(timezone.utc).isoformat()
-        self._doc_path(doc.id).write_text(json.dumps(doc.to_dict(), indent=2))
-        logger.info("Created focus document: %s (%s)", doc.name, doc.id)
-        return doc
+        with self._lock:
+            doc.updated_at = datetime.now(timezone.utc).isoformat()
+            self._atomic_write(
+                self._doc_path(doc.id),
+                json.dumps(doc.to_dict(), indent=2),
+            )
+            logger.info("Created focus document: %s (%s)", doc.name, doc.id)
+            return doc
 
     def update_document(self, doc_id: str, updates: dict) -> FocusDocument | None:
-        existing = self.get_document(doc_id)
-        if not existing:
-            return None
-        for k, v in updates.items():
-            if hasattr(existing, k) and k not in ("id", "created_at", "created_by"):
-                setattr(existing, k, v)
-        existing.updated_at = datetime.now(timezone.utc).isoformat()
-        self._doc_path(doc_id).write_text(json.dumps(existing.to_dict(), indent=2))
-        logger.info("Updated focus document: %s", existing.name)
-        return existing
+        with self._lock:
+            p = self._doc_path(doc_id)
+            if not p.exists():
+                return None
+            try:
+                existing = FocusDocument.from_dict(json.loads(self._locked_read(p)))
+            except Exception:
+                return None
+            for k, v in updates.items():
+                if hasattr(existing, k) and k not in ("id", "created_at", "created_by"):
+                    setattr(existing, k, v)
+            existing.updated_at = datetime.now(timezone.utc).isoformat()
+            self._atomic_write(p, json.dumps(existing.to_dict(), indent=2))
+            logger.info("Updated focus document: %s", existing.name)
+            return existing
 
     def delete_document(self, doc_id: str) -> bool:
-        p = self._doc_path(doc_id)
-        if p.exists():
-            p.unlink()
-            logger.info("Deleted focus document: %s", doc_id)
-            return True
-        return False
+        with self._lock:
+            p = self._doc_path(doc_id)
+            if p.exists():
+                p.unlink()
+                logger.info("Deleted focus document: %s", doc_id)
+                return True
+            return False
 
     # ── Enhancement suggestions ────────────────────────────────
 
     def _load_suggestions(self) -> list[dict]:
-        if SUGGESTIONS_FILE.exists():
+        if self._suggestions_file.exists():
             try:
-                return json.loads(SUGGESTIONS_FILE.read_text())
+                return json.loads(self._locked_read(self._suggestions_file))
             except Exception:
                 return []
         return []
 
     def _save_suggestions(self, suggestions: list[dict]):
-        SUGGESTIONS_FILE.write_text(json.dumps(suggestions, indent=2))
+        self._atomic_write(self._suggestions_file, json.dumps(suggestions, indent=2))
 
     def add_suggestion(self, document_id: str, suggestion_type: str,
                        suggestion_data: dict, source_query_id: str | None = None) -> dict:
-        suggestions = self._load_suggestions()
-        entry = {
-            "id": len(suggestions) + 1,
-            "document_id": document_id,
-            "suggestion_type": suggestion_type,
-            "suggestion_data": suggestion_data,
-            "source_query_id": source_query_id,
-            "status": "pending",
-            "reviewed_by": None,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        suggestions.append(entry)
-        self._save_suggestions(suggestions)
-        return entry
+        with self._lock:
+            suggestions = self._load_suggestions()
+            entry = {
+                "id": len(suggestions) + 1,
+                "document_id": document_id,
+                "suggestion_type": suggestion_type,
+                "suggestion_data": suggestion_data,
+                "source_query_id": source_query_id,
+                "status": "pending",
+                "reviewed_by": None,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            suggestions.append(entry)
+            self._save_suggestions(suggestions)
+            return entry
 
     def list_suggestions(self, document_id: str | None = None,
                          status: str | None = None) -> list[dict]:
-        suggestions = self._load_suggestions()
-        if document_id:
-            suggestions = [s for s in suggestions if s["document_id"] == document_id]
-        if status:
-            suggestions = [s for s in suggestions if s["status"] == status]
-        return suggestions
+        with self._lock:
+            suggestions = self._load_suggestions()
+            if document_id:
+                suggestions = [s for s in suggestions if s["document_id"] == document_id]
+            if status:
+                suggestions = [s for s in suggestions if s["status"] == status]
+            return suggestions
 
     def review_suggestion(self, suggestion_id: int, action: str,
                           reviewer: str = "admin") -> dict | None:
         """Accept or reject a suggestion. If accepted, apply to the document."""
-        suggestions = self._load_suggestions()
-        target = None
-        for s in suggestions:
-            if s["id"] == suggestion_id:
-                target = s
-                break
-        if not target:
-            return None
+        with self._lock:
+            suggestions = self._load_suggestions()
+            target = None
+            for s in suggestions:
+                if s["id"] == suggestion_id:
+                    target = s
+                    break
+            if not target:
+                return None
 
-        target["status"] = action  # 'accepted' | 'rejected'
-        target["reviewed_by"] = reviewer
+            target["status"] = action  # 'accepted' | 'rejected'
+            target["reviewed_by"] = reviewer
 
-        if action == "accepted":
-            self._apply_suggestion(target)
+            if action == "accepted":
+                self._apply_suggestion_locked(target)
 
-        self._save_suggestions(suggestions)
-        return target
+            self._save_suggestions(suggestions)
+            return target
 
-    def _apply_suggestion(self, suggestion: dict):
-        """Apply an accepted suggestion to its parent focus document."""
-        doc = self.get_document(suggestion["document_id"])
-        if not doc:
+    def _apply_suggestion_locked(self, suggestion: dict):
+        """Apply an accepted suggestion to its parent document.
+
+        MUST be called while self._lock is held.
+        """
+        p = self._doc_path(suggestion["document_id"])
+        if not p.exists():
+            return
+        try:
+            doc = FocusDocument.from_dict(json.loads(self._locked_read(p)))
+        except Exception:
             return
 
         stype = suggestion["suggestion_type"]
@@ -256,7 +346,11 @@ class FocusStore:
             if col:
                 doc.column_notes[col] = note
 
-        self.create_document(doc)  # overwrite
+        doc.updated_at = datetime.now(timezone.utc).isoformat()
+        self._atomic_write(
+            self._doc_path(doc.id),
+            json.dumps(doc.to_dict(), indent=2),
+        )
 
 
 # ── Metabase URL parsing ──────────────────────────────────────────

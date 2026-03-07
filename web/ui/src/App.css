@@ -733,6 +733,35 @@ body {
 }
 
 /* Upload */
+.document-upload-form {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.document-upload-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.document-upload-wide {
+  grid-column: 1 / -1;
+}
+.document-upload-checkbox {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+}
+.document-upload-checkbox input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.document-upload-checkbox span {
+  color: var(--text);
+  font-size: 12px;
+}
 .upload-zone {
   padding: 32px; text-align: center;
 }
@@ -753,6 +782,22 @@ body {
 .doc-item-info { flex: 1; min-width: 0; }
 .doc-item-name { display: block; font-size: 0.82rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .doc-item-meta { font-size: 0.72rem; color: var(--text-muted); }
+.doc-item-desc {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.doc-item-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.doc-item-badges .badge {
+  font-size: 0.62rem;
+  padding: 2px 8px;
+}
 
 /* Glossary */
 .glossary-toolbar {

@@ -285,7 +285,13 @@ Key files:
 - `.github/workflows/ci.yml`
 - `tests/test_set_business_critical.json`
 - `data/benchmark_baseline.json`
-- `src/raven/benchmark_runner.py`
+- `src/raven/eval/benchmark_runner.py`
+- `src/raven/eval/benchmark_gate.py`
+- `src/raven/retrieval/vector_index.py`
+- `tests/test_integration.py`
+- `tests/test_benchmark_gate.py`
+- `tests/test_vector_index.py`
+- `tests/test_focus_safety.py`
 
 ## What Is Still Missing
 
@@ -295,16 +301,16 @@ Key files:
 - value indexes implemented but not yet fully integrated into all lanes
 - constrained fallback generation implemented but needs broader testing
 - confidence modeling implemented but needs calibration against real queries
-- benchmark-first release gating partially implemented (runner exists, not yet CI gate)
+- ~~benchmark-first release gating partially implemented~~ DONE (`benchmark_gate.py` + CI job)
 - ~~provenance exists, but it is still too lightweight~~ DONE (full audit trail)
 
 ### Runtime / Production Gaps
 
 - ~~Redis/shared cache and rate limiting are not in place~~ DONE
 - ~~Trino session reuse / pooling is not in place~~ DONE
-- ANN/vector retrieval redesign is not in place
-- distributed-safe focus/upload state is still not cleaned up
-- the `prometheus_client` dependency/bootstrap mismatch is still unresolved
+- ~~ANN/vector retrieval redesign is not in place~~ DONE (`vector_index.py` — Matryoshka dim reduction, hybrid BM25+vector search, HNSW lifecycle)
+- ~~distributed-safe focus/upload state is still not cleaned up~~ DONE (FocusStore: threading.Lock + atomic writes + fcntl advisory locks)
+- ~~the `prometheus_client` dependency/bootstrap mismatch is still unresolved~~ DONE (added to requirements.txt)
 
 ### Known Legacy / Drift Areas
 
@@ -325,27 +331,26 @@ Priority order:
 1. ~~Add calibrated confidence scoring~~ DONE (`confidence_model.py`)
 2. ~~Integrate the real CostGuard into selection and abstention logic~~ DONE
 3. ~~Constrain the fallback generation path~~ DONE (`constrained_sql.py`)
-4. ~~Build the benchmark runner~~ DONE (`benchmark_runner.py`) — still needs CI gate integration
+4. ~~Build the benchmark runner~~ DONE (`benchmark_runner.py`) + CI gate (`benchmark_gate.py`)
 5. ~~Add value indexes and clarification behavior~~ DONE (`value_index.py`, `ambiguity_policy.py`)
 6. ~~Replace the narrow SQL compiler with a fuller AST/compiler path~~ DONE (`sqlglot_compiler.py`)
-7. ~~Harden runtime~~ MOSTLY DONE (Redis cache, rate limiting, Trino pool)
+7. ~~Harden runtime~~ DONE (Redis cache, rate limiting, Trino pool, prometheus, focus safety)
 
 ### Remaining Work
 
-1. Install sqlglot into production venv (currently optional dependency, skipped in test env)
-2. ANN/vector retrieval redesign for semantic search
-3. Make benchmark delta the actual CI release gate
+1. ~~Install sqlglot into production venv~~ DONE (v29.0.1)
+2. ~~ANN/vector retrieval redesign for semantic search~~ DONE (`vector_index.py`)
+3. ~~Make benchmark delta the actual CI release gate~~ DONE (`benchmark_gate.py` + CI workflow)
 4. Calibrate confidence model against real production queries
-5. Clean up distributed-safe focus/upload state
-6. Resolve prometheus_client dependency/bootstrap mismatch
-7. End-to-end integration testing with live Trino + Redis
+5. ~~Clean up distributed-safe focus/upload state~~ DONE (atomic writes + locks)
+6. ~~Resolve prometheus_client dependency/bootstrap mismatch~~ DONE
+7. ~~End-to-end integration testing with live Trino + Redis~~ SCAFFOLD DONE (`test_integration.py`, 20 tests + 2 live-skipped)
 
 ## Known Sharp Edges
 
-- The Prometheus/bootstrap dependency mismatch is still unresolved in the supported Docker path.
-- Runtime/distributed correctness still lags behind accuracy-core progress.
 - Some public docs still describe the earlier 8-stage LLM-heavy architecture more strongly than the current compiler-first direction.
-- The benchmark is still not the release gate, so claims of improvement are still architecture-led more than benchmark-led.
+- Confidence model needs calibration against real production queries (the only remaining accuracy-core gap).
+- Value indexes are implemented but not yet wired into all four query lanes.
 
 ## Testing Commands
 

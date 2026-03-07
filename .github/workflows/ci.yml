@@ -78,25 +78,8 @@ jobs:
           pip install -e ".[dev]"
           pip install sqlglot redis httpx
 
-      - name: Validate benchmark test sets
-        run: |
-          python -c "
-          import json
-          for path in ['tests/test_set.json', 'tests/test_set_business_critical.json']:
-              with open(path) as f:
-                  data = json.load(f)
-              print(f'{path}: {len(data)} test cases')
-              for item in data:
-                  assert 'question' in item or 'id' in item, f'Invalid test case: {item}'
-          print('All test sets valid')
-          "
+      - name: Validate test sets
+        run: python -m src.raven.eval.benchmark_gate --validate-only
 
-      - name: Validate benchmark baseline
-        run: |
-          python -c "
-          import json
-          with open('data/benchmark_baseline.json') as f:
-              baseline = json.load(f)
-          assert 'metrics' in baseline, 'Missing metrics in baseline'
-          print(f'Baseline loaded: {len(baseline[\"metrics\"])} metrics')
-          "
+      - name: Run benchmark gate
+        run: python -m src.raven.eval.benchmark_gate --max-pass-rate-drop 2.0 --max-latency-increase 5.0

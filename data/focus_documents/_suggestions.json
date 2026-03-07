@@ -1,0 +1,386 @@
+[
+  {
+    "id": 1,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_0"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.376864+00:00"
+  },
+  {
+    "id": 2,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_6"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.377349+00:00"
+  },
+  {
+    "id": 3,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_9"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.377602+00:00"
+  },
+  {
+    "id": 4,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_10"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.377802+00:00"
+  },
+  {
+    "id": 5,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_11"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.377994+00:00"
+  },
+  {
+    "id": 6,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_5"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.378205+00:00"
+  },
+  {
+    "id": 7,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_1"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.378410+00:00"
+  },
+  {
+    "id": 8,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_7"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.378600+00:00"
+  },
+  {
+    "id": 9,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_8"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.378789+00:00"
+  },
+  {
+    "id": 10,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_2"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.379880+00:00"
+  },
+  {
+    "id": 11,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_3"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.380340+00:00"
+  },
+  {
+    "id": 12,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_4"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.380677+00:00"
+  },
+  {
+    "id": 13,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_12"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.380960+00:00"
+  },
+  {
+    "id": 14,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_13"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.381209+00:00"
+  },
+  {
+    "id": 15,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_14"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:49:41.381481+00:00"
+  },
+  {
+    "id": 16,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "gold.new_table"
+    },
+    "source_query_id": null,
+    "status": "accepted",
+    "reviewed_by": "admin",
+    "created_at": "2026-03-07T11:49:41.383553+00:00"
+  },
+  {
+    "id": 17,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_0"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.017680+00:00"
+  },
+  {
+    "id": 18,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_8"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.018090+00:00"
+  },
+  {
+    "id": 19,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_2"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.018515+00:00"
+  },
+  {
+    "id": 20,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_3"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.018921+00:00"
+  },
+  {
+    "id": 21,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_4"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.019288+00:00"
+  },
+  {
+    "id": 22,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_5"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.019742+00:00"
+  },
+  {
+    "id": 23,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_6"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.020091+00:00"
+  },
+  {
+    "id": 24,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_7"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.020385+00:00"
+  },
+  {
+    "id": 25,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_1"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.020674+00:00"
+  },
+  {
+    "id": 26,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_9"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.021008+00:00"
+  },
+  {
+    "id": 27,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_10"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.021310+00:00"
+  },
+  {
+    "id": 28,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_11"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.021595+00:00"
+  },
+  {
+    "id": 29,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_12"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.021888+00:00"
+  },
+  {
+    "id": 30,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_13"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.022163+00:00"
+  },
+  {
+    "id": 31,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "table_14"
+    },
+    "source_query_id": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "created_at": "2026-03-07T11:53:34.022640+00:00"
+  },
+  {
+    "id": 32,
+    "document_id": "test-001",
+    "suggestion_type": "add_table",
+    "suggestion_data": {
+      "table": "gold.new_table"
+    },
+    "source_query_id": null,
+    "status": "accepted",
+    "reviewed_by": "admin",
+    "created_at": "2026-03-07T11:53:34.079255+00:00"
+  }
+]

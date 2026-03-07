@@ -15,7 +15,7 @@ from pathlib import Path
 
 import re as _re
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -133,6 +133,19 @@ class UploadDocResponse(BaseModel):
     filename: str
     chunks_created: int
     message: str
+    title: str = ""
+    description: str = ""
+    doc_kind: str = "reference"
+    domain: str = ""
+    owner: str = ""
+    trust_level: str = "reference"
+    related_tables: list[str] = []
+    related_metrics: list[str] = []
+    tags: list[str] = []
+    version: str = ""
+    effective_date: str = ""
+    deprecated: bool = False
+    focus_document_id: str | None = None
 
 
 # ── Dependency: get pipeline ──────────────────────────────────────────
@@ -449,11 +462,126 @@ async def stats(pipeline=Depends(get_pipeline)):
 # ── Admin Routes ──────────────────────────────────────────────────────
 
 UPLOAD_DIR = Path("data/uploads")
+ALLOWED_DOC_KINDS = {
+    "reference",
+    "prd",
+    "metric_spec",
+    "table_relation",
+    "business_rule",
+    "glossary_note",
+    "dashboard_note",
+    "runbook",
+    "general",
+    "other",
+}
+ALLOWED_TRUST_LEVELS = {"reference", "reviewed", "canonical"}
+
+
+def _parse_csv_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    items = [
+        part.strip()
+        for raw in value.splitlines()
+        for part in raw.split(",")
+    ]
+    seen: set[str] = set()
+    parsed: list[str] = []
+    for item in items:
+        key = item.lower()
+        if item and key not in seen:
+            seen.add(key)
+            parsed.append(item)
+    return parsed
+
+
+def _normalize_choice(value: str | None, allowed: set[str], default: str, field_name: str) -> str:
+    normalized = (value or default).strip().lower().replace(" ", "_")
+    if normalized not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {field_name}: {value!r}. Allowed: {', '.join(sorted(allowed))}",
+        )
+    return normalized
+
+
+def _looks_like_table_ref(value: str | None) -> bool:
+    if not value:
+        return False
+    return bool(_re.match(r"^[A-Za-z0-9]+(?:[._][A-Za-z0-9]+)+$", value.strip()))
+
+
+def _merge_unique(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    merged: list[str] = []
+    for item in items:
+        key = item.strip().lower()
+        if item and key not in seen:
+            seen.add(key)
+            merged.append(item.strip())
+    return merged
+
+
+def _find_uploaded_focus_doc(store, filename: str) -> dict | None:
+    for doc in store.list_documents():
+        if doc.get("type") != "uploaded":
+            continue
+        if doc.get("source_filename") == filename:
+            return doc
+        if filename in doc.get("description", ""):
+            return doc
+    return None
+
+
+def _doc_metadata_from_focus(doc: dict | None) -> dict:
+    if not doc:
+        return {
+            "title": "",
+            "description": "",
+            "doc_kind": "reference",
+            "domain": "",
+            "owner": "",
+            "trust_level": "reference",
+            "related_tables": [],
+            "related_metrics": [],
+            "tags": [],
+            "version": "",
+            "effective_date": "",
+            "deprecated": False,
+            "focus_document_id": None,
+        }
+    return {
+        "title": doc.get("name", ""),
+        "description": doc.get("description", ""),
+        "doc_kind": doc.get("doc_kind", "reference"),
+        "domain": doc.get("domain", ""),
+        "owner": doc.get("owner", ""),
+        "trust_level": doc.get("trust_level", "reference"),
+        "related_tables": doc.get("tables", []),
+        "related_metrics": doc.get("related_metrics", []),
+        "tags": doc.get("tags", []),
+        "version": doc.get("version", ""),
+        "effective_date": doc.get("effective_date", ""),
+        "deprecated": bool(doc.get("deprecated", False)),
+        "focus_document_id": doc.get("id"),
+    }
 
 
 @admin_router.post("/upload-doc", response_model=UploadDocResponse)
 async def upload_doc(
     file: UploadFile = File(...),
+    title: str = Form(""),
+    description: str = Form(""),
+    doc_kind: str = Form("reference"),
+    domain: str = Form(""),
+    owner: str = Form(""),
+    trust_level: str = Form("reference"),
+    related_tables: str = Form(""),
+    related_metrics: str = Form(""),
+    tags: str = Form(""),
+    version: str = Form(""),
+    effective_date: str = Form(""),
+    deprecated: bool = Form(False),
     pipeline=Depends(get_pipeline),
 ):
     """Upload a documentation file (Markdown, PDF, Word), chunk it, embed, and store."""
@@ -471,6 +599,34 @@ async def upload_doc(
     content = await file.read()
     dest.write_bytes(content)
     logger.info("Uploaded doc: %s (%d bytes)", dest.name, len(content))
+
+    doc_title = title.strip() or Path(file.filename or "Uploaded Document").stem
+    doc_description = description.strip()
+    normalized_doc_kind = _normalize_choice(doc_kind, ALLOWED_DOC_KINDS, "reference", "doc_kind")
+    normalized_trust = _normalize_choice(
+        trust_level,
+        ALLOWED_TRUST_LEVELS,
+        "reference",
+        "trust_level",
+    )
+    related_tables_list = _parse_csv_list(related_tables)
+    related_metrics_list = _parse_csv_list(related_metrics)
+    tags_list = _parse_csv_list(tags)
+    base_metadata = {
+        "title": doc_title,
+        "description": doc_description,
+        "doc_kind": normalized_doc_kind,
+        "domain": domain.strip(),
+        "owner": owner.strip(),
+        "trust_level": normalized_trust,
+        "related_tables": related_tables_list,
+        "related_metrics": related_metrics_list,
+        "tags": tags_list,
+        "version": version.strip(),
+        "effective_date": effective_date.strip(),
+        "deprecated": deprecated,
+        "source_filename": dest.name,
+    }
 
     # ── Chunk the file ────────────────────────────────────────────────
     from preprocessing.ingest_documentation import (
@@ -502,15 +658,27 @@ async def upload_doc(
             texts = [c["text"] for c in chunks]
             embeddings = await pipeline.openai.batch_embed(texts)
             for chunk, emb in zip(chunks, embeddings):
+                chunk_metadata = {
+                    **chunk.get("metadata", {}),
+                    **base_metadata,
+                }
+                table_ref = (
+                    chunk_metadata.get("table_name")
+                    or chunk_metadata.get("table")
+                    or (related_tables_list[0] if len(related_tables_list) == 1 else "")
+                )
+                if not table_ref and _looks_like_table_ref(chunk.get("section", "")):
+                    table_ref = chunk.get("section", "")
                 pipeline.pgvector.insert(
                     table="doc_embeddings",
                     text="",
                     embedding=emb,
-                    metadata=chunk.get("metadata", {}),
+                    metadata=chunk_metadata,
                     source_file=str(dest),
-                    table_ref=chunk.get("section", ""),
+                    table_ref=table_ref,
                     content=chunk["text"],
-                    doc_type=chunk.get("metadata", {}).get("file_type", "unknown"),
+                    doc_type=chunk_metadata.get("doc_kind")
+                    or chunk_metadata.get("file_type", "unknown"),
                 )
                 chunks_stored += 1
             logger.info("Stored %d embeddings for %s", chunks_stored, dest.name)
@@ -518,31 +686,53 @@ async def upload_doc(
             logger.error("Embedding/storage failed for %s: %s", dest.name, exc)
 
     # ── Auto-create focus document from uploaded doc ────────────────
-    if chunks_stored > 0:
-        try:
-            from src.raven.focus import FocusDocument, FocusStore
-            # Extract table refs from chunk metadata/sections
-            table_refs = list({
-                c.get("section", "")
-                for c in chunks if c.get("section")
-            })
-            doc_name = Path(file.filename or "Uploaded Document").stem
-            focus_doc = FocusDocument(
-                name=doc_name,
-                description=f"Auto-created from uploaded file: {dest.name}",
-                type="uploaded",
-                tables=table_refs[:50],  # cap
-                business_rules=[
-                    {"rule": c["text"][:500], "source": dest.name}
-                    for c in chunks[:20]  # first 20 chunks as business rules
-                ],
-                created_by="upload",
-            )
-            store = FocusStore()
-            store.create_document(focus_doc)
-            logger.info("Auto-created focus doc '%s' from upload %s", doc_name, dest.name)
-        except Exception as exc:
-            logger.warning("Failed to auto-create focus doc: %s", exc)
+    focus_document_id = None
+    try:
+        from src.raven.focus import FocusDocument, FocusStore
+
+        store = FocusStore()
+        existing = _find_uploaded_focus_doc(store, dest.name)
+        chunk_tables = [
+            c.get("metadata", {}).get("table_name", "")
+            for c in chunks
+            if c.get("metadata", {}).get("table_name")
+        ]
+        combined_tables = _merge_unique([*related_tables_list, *chunk_tables])[:50]
+        business_rules = []
+        if doc_description:
+            business_rules.append({"rule": doc_description, "source": dest.name})
+        business_rules.extend(
+            {"rule": c["text"][:500], "source": dest.name}
+            for c in chunks[:20]
+        )
+        focus_payload = {
+            "name": doc_title,
+            "description": doc_description or f"Uploaded file: {dest.name}",
+            "type": "uploaded",
+            "doc_kind": normalized_doc_kind,
+            "domain": domain.strip(),
+            "owner": owner.strip(),
+            "trust_level": normalized_trust,
+            "related_metrics": related_metrics_list,
+            "tags": tags_list,
+            "source_filename": dest.name,
+            "version": version.strip(),
+            "effective_date": effective_date.strip(),
+            "deprecated": deprecated,
+            "tables": combined_tables,
+            "business_rules": business_rules,
+            "created_by": "upload",
+        }
+        if existing:
+            updated = store.update_document(existing["id"], focus_payload)
+            focus_document_id = updated.id if updated else None
+        else:
+            focus_doc = FocusDocument(**focus_payload)
+            created = store.create_document(focus_doc)
+            focus_document_id = created.id
+        logger.info("Upserted uploaded focus doc '%s' from %s", doc_title, dest.name)
+    except Exception as exc:
+        logger.warning("Failed to upsert focus doc for upload %s: %s", dest.name, exc)
 
     return UploadDocResponse(
         status="indexed" if chunks_stored > 0 else "uploaded",
@@ -553,6 +743,19 @@ async def upload_doc(
             if chunks_stored > 0
             else f"File saved but chunking produced 0 chunks (check file content or format)."
         ),
+        title=doc_title,
+        description=doc_description,
+        doc_kind=normalized_doc_kind,
+        domain=domain.strip(),
+        owner=owner.strip(),
+        trust_level=normalized_trust,
+        related_tables=related_tables_list,
+        related_metrics=related_metrics_list,
+        tags=tags_list,
+        version=version.strip(),
+        effective_date=effective_date.strip(),
+        deprecated=deprecated,
+        focus_document_id=focus_document_id,
     )
 
 
@@ -560,6 +763,15 @@ async def upload_doc(
 async def list_uploaded_docs(pipeline=Depends(get_pipeline)):
     """List all uploaded documents with their chunk counts."""
     files = []
+    focus_docs_by_file: dict[str, dict] = {}
+    try:
+        from src.raven.focus import FocusStore
+        store = FocusStore()
+        for doc in store.list_documents():
+            if doc.get("type") == "uploaded" and doc.get("source_filename"):
+                focus_docs_by_file[doc["source_filename"]] = doc
+    except Exception:
+        pass
     if UPLOAD_DIR.exists():
         for f in sorted(UPLOAD_DIR.iterdir()):
             if f.is_file():
@@ -578,12 +790,14 @@ async def list_uploaded_docs(pipeline=Depends(get_pipeline)):
                         pipeline.pgvector._pool.putconn(conn)
                 except Exception:
                     pass
+                focus_doc = focus_docs_by_file.get(f.name)
                 files.append({
                     "filename": f.name,
                     "size_bytes": f.stat().st_size,
                     "chunks": chunk_count,
                     "uploaded_at": f.stat().st_mtime,
                     "status": "indexed" if chunk_count > 0 else "uploaded",
+                    **_doc_metadata_from_focus(focus_doc),
                 })
     return {"documents": files}
 
@@ -613,9 +827,10 @@ async def delete_uploaded_doc(filename: str, pipeline=Depends(get_pipeline)):
         from src.raven.focus import FocusStore
         store = FocusStore()
         for doc in store.list_documents():
-            if doc.get("type") == "uploaded" and dest.name in doc.get("description", ""):
+            if doc.get("type") != "uploaded":
+                continue
+            if doc.get("source_filename") == dest.name or dest.name in doc.get("description", ""):
                 store.delete_document(doc["id"])
-                break
     except Exception:
         pass
     # Delete file
@@ -746,6 +961,16 @@ async def create_focus_document(body: dict):
         name=body.get("name", "Untitled"),
         description=body.get("description", ""),
         type=body.get("type", "manual"),
+        doc_kind=body.get("doc_kind", "reference"),
+        domain=body.get("domain", ""),
+        owner=body.get("owner", ""),
+        trust_level=body.get("trust_level", "reference"),
+        related_metrics=body.get("related_metrics", []),
+        tags=body.get("tags", []),
+        source_filename=body.get("source_filename", ""),
+        version=body.get("version", ""),
+        effective_date=body.get("effective_date", ""),
+        deprecated=body.get("deprecated", False),
         tables=body.get("tables", []),
         glossary_terms=body.get("glossary_terms", []),
         verified_queries=body.get("verified_queries", []),
