@@ -21,7 +21,9 @@ from typing import Any
 from .connectors.openai_client import OpenAIClient
 from .connectors.pgvector_store import PgVectorStore
 from .connectors.trino_connector import TrinoConnector
+from .connectors.trino_pool import TrinoSessionPool
 from .connectors.openmetadata_mcp import OpenMetadataMCPClient, OpenMetadataConfig
+from .contracts.instruction_compiler import InstructionCompiler
 from .focus import FocusContext, suggest_enhancements
 from .router.classifier import DifficultyClassifier, Difficulty
 from .retrieval.information_retriever import InformationRetriever
@@ -37,11 +39,15 @@ from .output.renderer import OutputRenderer
 from .feedback.collector import FeedbackCollector
 from .conversation import ConversationManager
 from .cache import QueryCache
+from .redis_cache import HybridCache, RedisCache
 from .grounding import ValueResolver
 from .grounding.ambiguity_policy import AmbiguityPolicy
 from .metrics import METRICS
 from .planning import DeterministicPlanner
+from .query_families.provenance import build_provenance_from_match
+from .query_families.registry import QueryFamilyRegistry
 from .semantic_assets import SemanticModelStore
+from .sql.sqlglot_compiler import TrinoSQLCompiler
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +153,8 @@ class Pipeline:
 
         # Query result cache
         self.cache = QueryCache(enabled=cache_enabled, ttl_seconds=cache_ttl)
+        self.redis_cache = RedisCache.from_env()
+        self.hybrid_cache = HybridCache(memory_cache=self.cache, redis_cache=self.redis_cache)
         self.semantic_assets = SemanticModelStore()
         self._data_keyword_pattern = self.semantic_assets.keyword_pattern()
 
@@ -172,6 +180,30 @@ class Pipeline:
         self.ambiguity_policy = AmbiguityPolicy()
         self.constrained_sql = ConstrainedSQLGenerator()
         self.planner = DeterministicPlanner(self.semantic_assets)
+        self.trino_pool = TrinoSessionPool(trino)
+        self.sql_compiler = TrinoSQLCompiler()
+        self.instruction_compiler = InstructionCompiler()
+        self.family_registry = QueryFamilyRegistry()
+
+        # Compile instruction assets from semantic model rules
+        if self.semantic_assets._rules:
+            raw_rules = [
+                {
+                    "term": r.term,
+                    "definition": r.definition,
+                    "sql_fragment": r.sql_fragment,
+                    "synonyms": list(r.synonyms),
+                    "categories": list(r.categories),
+                    "rule_type": r.rule_type,
+                }
+                for r in self.semantic_assets._rules
+            ]
+            self.instruction_set = self.instruction_compiler.compile(
+                raw_rules, source_file="semantic_model"
+            )
+        else:
+            from .contracts.instructions import InstructionSet
+            self.instruction_set = InstructionSet()
 
         # Load preprocessing artifacts from data/ directory
         self._load_artifacts()
@@ -514,18 +546,25 @@ class Pipeline:
                 ctx.query_family_match = refined_family_match
 
         if ctx.query_family_match and ctx.query_family_match.get("sql"):
+            # Build provenance record for audit trail
+            provenance = build_provenance_from_match(
+                ctx.query_family_match,
+                user_question=ctx.user_question,
+            )
             ctx.query_plan = {
                 "path_type": "QUERY_FAMILY",
                 "intent": "QUERY_FAMILY",
                 "confidence": "HIGH" if ctx.query_family_match.get("source") == "metabase" else "MEDIUM",
                 "compiled_sql": ctx.query_family_match.get("sql", ""),
                 "source_tables": ctx.query_family_match.get("tables_used", []),
+                "provenance": provenance.to_dict(),
                 "evidence": [
                     {
                         "kind": "query_family",
                         "source": ctx.query_family_match.get("source", "semantic_model"),
                         "detail": ctx.query_family_match.get("question", ""),
                         "score": ctx.query_family_match.get("similarity", 0.0),
+                        "evidence_strength": provenance.evidence_strength,
                     }
                 ],
             }
@@ -617,6 +656,20 @@ class Pipeline:
                 raw_candidates=ctx.sql_candidates,
                 selected_tables=ctx.selected_tables,
             )
+
+        # sqlglot validation: parse + dialect enforcement on survivors
+        if ctx.sql_candidates and self.sql_compiler.is_available():
+            validated: list[str] = []
+            for sql in ctx.sql_candidates:
+                result = self.sql_compiler.compile(sql)
+                if result.ok:
+                    validated.append(result.sql)
+                else:
+                    logger.debug(
+                        "sqlglot rejected candidate: %s", result.errors[:3]
+                    )
+            if validated:
+                ctx.sql_candidates = validated
 
     async def _stage_validation(self, ctx: PipelineContext) -> None:
         # Build retrieval quality signals for confidence calibration

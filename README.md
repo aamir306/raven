@@ -1,158 +1,191 @@
 <p align="center">
   <h1 align="center">RAVEN</h1>
-  <p align="center"><strong>Retrieval-Augmented Validated Engine for Natural-language SQL</strong></p>
+  <p align="center"><strong>Accuracy-first text-to-SQL for Trino analytics stacks</strong></p>
 </p>
 
-<p align="center">
-  <a href="#architecture">Architecture</a> •
-  <a href="#quickstart">Quickstart</a> •
-  <a href="#features">Features</a> •
-  <a href="#configuration">Configuration</a> •
-  <a href="#contributing">Contributing</a> •
-  <a href="docs/ai-handoff.md">AI Handoff</a>
-</p>
+RAVEN is an open-source backend for turning natural-language analytics questions into SQL for Trino-based warehouses.
 
----
+The project is being built around:
 
-RAVEN is an accuracy-first text-to-SQL system for **Trino-centered analytics stacks**. It is being built as a semantic, compiler-style backend for `Trino + dbt + Metabase + OpenMetadata` environments, with domain knowledge loaded from configurable semantic assets instead of hardcoded engine logic.
+- semantic contracts
+- trusted query reuse
+- value grounding
+- deterministic planning
+- plan-aware validation
+- abstention when confidence is weak
 
-## AI / Engineering Handoff
+It is meant for teams that already have analytics assets such as dbt metadata, saved BI queries, and business metric definitions.
 
-If you are continuing implementation or evaluating the current architecture, start here:
+## Status
 
-- [docs/ai-handoff.md](docs/ai-handoff.md) — current implementation state, active backend path, next work
-- [docs/accuracy-first-10-10-roadmap.md](docs/accuracy-first-10-10-roadmap.md) — target architecture and roadmap
+RAVEN is **active, usable, and not finished**.
 
-Some older markdown files in the repo are historical context and may describe earlier architecture decisions.
+Current state:
 
-## Current Direction
+- accuracy-core architecture is substantially built
+- deterministic and trusted-query paths are implemented
+- runtime hardening and benchmark-gated releases are still incomplete
+- APIs and internal modules may still change
 
-RAVEN is no longer being shaped as a generic "LLM chats with your schema" app.
+If you want the current engineering state, read:
 
-The active direction is:
+- [docs/ai-handoff.md](docs/ai-handoff.md)
+- [docs/accuracy-first-10-10-roadmap.md](docs/accuracy-first-10-10-roadmap.md)
 
-- **Semantic contracts first** — metrics, dimensions, relationships, and trusted assets should live in config or domain packs
-- **Deterministic planning first** — the system should form a typed plan before free-form SQL generation
-- **Trusted evidence first** — verified queries, Metabase assets, OpenMetadata signals, and semantic assets should outrank model guesswork
-- **Abstain over guess** — if confidence is weak, the system should clarify or refuse instead of returning elegant wrong answers
-- **OSS engine, configurable domain knowledge** — the Python engine should stay generic; business semantics should be externalized
+## What RAVEN Is
 
-## Current Status
+RAVEN is:
 
-As of `March 7, 2026`:
+- an accuracy-first text-to-SQL system for `Trino + dbt + Metabase + OpenMetadata` style environments
+- a configurable engine that should load domain knowledge from semantic assets, not hardcoded Python rules
+- best suited for internal analytics questions where correctness matters more than UI polish
 
-- overall technical roadmap: `~70%`
-- accuracy-core architecture: `~92%`
-- production/runtime hardening: `~43%`
+RAVEN is not:
+
+- a zero-config generic SQL chatbot
+- a polished end-user BI product
+- a guarantee of good results without curated metadata
+
+## Research Lineage
+
+The architecture is intentionally research-informed. That is a real differentiator and should be explicit.
+
+RAVEN is not just "LLM + schema text". The current design pulls from work showing that enterprise text-to-SQL improves when schema linking, semantic structure, trusted examples, and execution-aware validation are treated as first-class concerns.
+
+| Source | What RAVEN takes from it |
+|---|---|
+| [CHESS](https://arxiv.org/abs/2405.16755) | staged retrieval and schema-selection ideas for enterprise databases |
+| [CHASE-SQL](https://arxiv.org/abs/2410.01943) | multi-candidate generation and comparative selection ideas |
+| QueryWeaver | graph-oriented schema reasoning and bridge-table thinking |
+| PExA-style probe-first work | evidence gathering before or around SQL generation |
+| SQL-of-Thought-style validation | structured validation and repair thinking instead of generic retries |
+| [RAT-SQL](https://aclanthology.org/2020.acl-main.677/) | schema linking as a first-order accuracy problem |
+| [PICARD](https://aclanthology.org/2021.emnlp-main.779/) | constrained generation as the right direction for SQL safety |
+| [BIRD](https://bird-bench.github.io/) and [Spider 2.0](https://spider2-sql.github.io/) | realism: large schemas, messy values, ambiguity, and enterprise complexity |
+| [Snowflake Cortex Analyst](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst) | semantic-model-first product direction |
+| Wren / MinusX / Vanna style systems | semantic assets, trusted query memory, and evidence-backed reuse |
+
+What that means in practice:
+
+- semantic contracts matter more than prompt cleverness
+- trusted internal queries matter more than generic few-shot examples
+- value grounding matters as much as SQL generation
+- deterministic planning should cover as much of the question space as possible
+- the model should be the fallback for the unresolved tail, not the default authority
+
+## What You Actually Need For Good Results
+
+If you want strong accuracy, these inputs matter more than prompt tweaks:
+
+1. A readable warehouse model
+   - dbt models, decent naming, clear join paths
+2. A semantic asset pack
+   - metrics, dimensions, synonyms, approved relationships, verified query examples
+3. Trusted analytics artifacts
+   - saved BI questions, dashboards, curated SQL, or reviewed question-to-SQL pairs
+4. Metadata quality
+   - table descriptions, column descriptions, table annotations, ownership, lineage
+5. Read-only Trino access
+   - RAVEN assumes it can inspect and execute safely against Trino
+
+Without those, the system can still run, but accuracy will plateau.
+
+## Current Capabilities
 
 Implemented now:
 
-- configurable domain-pack / semantic-model loading
+- configurable semantic model / domain-pack loading
 - semantic contract validation
-- trusted query-family matching and safe query-family reuse
-- deterministic value grounding
+- trusted query-family matching and safe query reuse
+- value grounding from semantic assets and metadata evidence
 - deterministic join policy and linker
-- deterministic schema seeding plus non-destructive pruning
+- deterministic schema seeding and non-destructive pruning
 - typed query plans
 - deterministic Trino compilation for planned lanes
-- plan-aware validation
+- plan-aware SQL validation
 - execution-grounded result sanity checks
-- abstention when plan or result confidence is too weak
-
-Still in progress:
-
-- constrained fallback generation
-- calibrated confidence model
-- benchmark-as-release-gate
-- runtime hardening: shared cache, Trino pooling, vector scaling, distributed-safe state
+- abstention when validation or result shape contradicts the plan
 
 Current passing suites:
 
 - focused accuracy-first suite: `55 passed`
 - smoke suite: `137 passed`
 
-## Architecture
+## Current Limitations
 
-```
-User Question (English)
-        │
-        ▼
-┌──────────────────────────┐
-│  1. Normalize / Route    │  Understand question shape and scope
-├──────────────────────────┤
-│  2. Semantic Assets      │  Contracts, verified queries, Metabase, OM evidence
-├──────────────────────────┤
-│  3. Ground / Link        │  Resolve values, tables, joins, required columns
-├──────────────────────────┤
-│  4. Build Query Plan     │  Typed deterministic plan when possible
-├──────────────────────────┤
-│  5. Compile or Fallback  │  Deterministic SQL first, LLM fallback second
-├──────────────────────────┤
-│  6. Validate             │  Check plan consistency before execution
-├──────────────────────────┤
-│  7. Execute / Judge      │  Sanity-check results against plan
-├──────────────────────────┤
-│  8. Respond or Abstain   │  Return answer, ask clarification, or refuse
-└──────────────────────────┘
-```
+Still in progress:
 
-Important note:
+- constrained fallback generation
+- calibrated confidence scoring
+- benchmark-as-release-gate
+- shared cache / rate limiting / distributed-safe runtime state
+- Trino session reuse and broader runtime hardening
+- fuller SQL compiler coverage for the unresolved tail
 
-- the repo still contains older staged modules from the original LLM-heavier pipeline
-- the active backend path is increasingly compiler-first and deterministic
-- for the exact current path, read [docs/ai-handoff.md](docs/ai-handoff.md)
+Practical implication:
 
-For the current implementation state, see [docs/ai-handoff.md](docs/ai-handoff.md). For the target architecture, see [docs/accuracy-first-10-10-roadmap.md](docs/accuracy-first-10-10-roadmap.md).
+- RAVEN is strongest when the question fits trusted-query or deterministic-plan lanes
+- the unresolved tail still depends on fallback generation more than it should
 
-## Features
+## Architecture Summary
 
-| Feature | Description |
-|---|---|
-| **Configurable Domain Packs** | Load semantic assets from `RAVEN_DOMAIN_PACK_PATH` or `RAVEN_SEMANTIC_MODEL_PATH` |
-| **Semantic Contract Validation** | Reject malformed metric, dimension, and relationship definitions at startup |
-| **Trusted Query Families** | Reuse verified SQL and Metabase-backed assets across safe metric, dimension, time, and filter changes |
-| **Value Grounding** | Resolve entity values from semantic enums, content signals, and asset evidence |
-| **Deterministic Join Policy** | Prefer approved join paths over model-discovered joins |
-| **Typed Query Plans** | Build structured plans before SQL for supported intents |
-| **Deterministic SQL Compilation** | Compile planned queries to Trino SQL via internal AST-style builders |
-| **Plan-Aware Validation** | Reject SQL that drops required joins, filters, limits, ordering, or metric intent |
-| **Execution Judge** | Reject results whose row shape or numeric behavior contradicts the plan |
-| **Fallback Generation** | Still present for unresolved cases, but no longer the desired default path |
+The active backend path is moving toward:
+
+1. Normalize and route the question
+2. Load semantic and trusted assets
+3. Ground values and resolve likely tables / joins
+4. Build a typed query plan when possible
+5. Compile deterministic SQL first
+6. Fall back to generation only when necessary
+7. Validate SQL against the plan
+8. Execute and sanity-check results
+9. Return an answer, clarification, or abstention
+
+For the exact current path, use [docs/ai-handoff.md](docs/ai-handoff.md) as the source of truth.
+
+## Why This Matters
+
+Most text-to-SQL systems fail for predictable reasons:
+
+- wrong table or join selection
+- wrong metric interpretation
+- wrong entity or value resolution
+- syntactically valid SQL that does not answer the business question
+
+RAVEN's architecture is built to reduce those specific failure modes, not just to make generated SQL look more fluent.
 
 ## Quickstart
 
 ### Prerequisites
 
 - Python 3.11+
-- Docker & Docker Compose
-- Access to a Trino cluster
+- Docker and Docker Compose
+- access to a Trino cluster
 - OpenAI API key
 
-### 1. Clone & Configure
+### 1. Clone and configure
 
 ```bash
 git clone https://github.com/aamir306/raven.git
 cd raven
 cp .env.example .env
-# Edit .env with your Trino, OpenAI, and PostgreSQL credentials
 ```
 
-### 2. Start Services
+Then edit `.env`.
+
+### 2. Start services
 
 ```bash
 docker-compose up -d
 ```
 
-This starts the RAVEN API server and a pgvector database for embeddings.
-
-### 3. Run Preprocessing
+### 3. Refresh metadata and artifacts
 
 ```bash
-# Extract metadata from your dbt project and Metabase
 python -m preprocessing.refresh_all
 ```
 
-### 4. Ask Questions
+### 4. Query the API
 
 ```bash
 curl -X POST http://localhost:8000/api/query \
@@ -164,109 +197,59 @@ Or open `http://localhost:8000` for the web UI.
 
 ## Configuration
 
-| File | Purpose |
-|---|---|
-| `.env` | Credentials and environment variables |
-| `config/settings.yaml` | Pipeline parameters, thresholds, cache TTL |
-| `config/model_routing.yaml` | LLM model selection per pipeline stage |
-| `config/error_taxonomy.json` | 36-subtype SQL error classification |
-| `config/trino_dialect_rules.txt` | 20 Trino-specific SQL rules |
-| `config/cost_guards.yaml` | Query cost limits, partition requirements |
-| `config/semantic_model.yaml` | Single-file semantic asset pack |
-| `config/table_annotations.yaml` | Table-level warnings, notes, and annotations |
-| `config/openmetadata.yaml` | OpenMetadata integration settings |
-| `config/metabase_mcp.yaml` | Metabase integration settings |
-
-Important environment variables:
+Key environment variables:
 
 - `RAVEN_DOMAIN_PACK_PATH`
   - preferred path for a split semantic/domain pack
 - `RAVEN_SEMANTIC_MODEL_PATH`
   - fallback path for a single semantic model file
 
-For open-source use, keep business semantics in these assets instead of in engine code.
+Important config files:
 
-## Monitoring
-
-RAVEN exposes a Prometheus-compatible `/api/metrics` endpoint with:
-
-- **Query latency** histograms (by difficulty, cached/uncached)
-- **Stage latency** histograms (per pipeline stage)
-- **Query cost** histograms (USD per query)
-- **Counters** for cache hits/misses, errors by stage, token usage, feedback
-- **Gauge** for in-flight queries
-
-Import the provided Grafana dashboard from `k8s/grafana-dashboard.json`.
-
-Current note:
-
-- the metrics/bootstrap path still needs cleanup before this should be treated as production-hardening complete
-
-## Project Structure
-
-```
-raven/
-├── config/                 # Configuration files
-├── docs/                   # Handoff, roadmap, build notes
-├── preprocessing/          # Data ingestion scripts (dbt, Metabase, LSH, etc.)
-│   ├── auto_describe.py    # GPT-4o-mini auto table/column descriptions
-│   ├── export_finetuning_data.py  # RLVR fine-tuning data export
-│   └── ...                 # 10 preprocessing scripts total
-├── prompts/                # All 16 LLM prompt templates
-├── scripts/                # Utility scripts (data quality assessment)
-├── src/raven/              # Core pipeline
-│   ├── pipeline.py         # Main orchestrator
-│   ├── semantic_assets.py  # Semantic asset access layer
-│   ├── metrics.py          # Prometheus instrumentation
-│   ├── contracts/          # Semantic contract loading and validation
-│   ├── router/             # Stage 1: Difficulty classification
-│   ├── retrieval/          # Stage 2: Context retrieval (6 sub-modules)
-│   ├── schema/             # Stage 3: Schema selection (4 sub-modules)
-│   ├── grounding/          # Value grounding and entity resolution
-│   ├── query_families/     # Trusted query matching and compilation
-│   ├── planning/           # Typed query plans and deterministic planner
-│   ├── sql/                # Deterministic AST-style SQL compilation
-│   ├── probes/             # Probe-based evidence gathering
-│   ├── generation/         # Fallback generation and revision
-│   ├── validation/         # Plan validation, selection, execution judge
-│   ├── output/             # Execution + charts + summary
-│   ├── connectors/         # Trino, pgvector, OpenAI clients
-│   ├── feedback/           # Rating and correction pipeline
-│   └── safety/             # Query validation, data policy
-├── web/                    # FastAPI API + React UI
-├── tests/                  # 200-question test set + evaluation scripts
-├── k8s/                    # Kubernetes manifests + Grafana dashboard
-└── data/                   # Generated artifacts (gitignored)
-```
-
-## Research Foundations
-
-RAVEN borrows ideas from multiple systems, but the current implementation is increasingly opinionated around semantic contracts, deterministic planning, and trusted query reuse.
-
-| Source | Contribution to RAVEN |
+| File | Purpose |
 |---|---|
-| [CHESS](https://arxiv.org/abs/2405.16755) (Stanford, 71.1% BIRD) | 4-agent pipeline architecture, prompt patterns |
-| [CHASE-SQL](https://arxiv.org/abs/2410.01943) (Apple, 73.0% BIRD) | Multi-candidate generation + pairwise selection |
-| PExA-style probe-first patterns | Probe-before-generate reasoning |
-| SQL-of-Thought-style taxonomy | Structured error and correction strategy |
-| [QueryWeaver](https://github.com/FalkorDB/QueryWeaver) | Graph-based schema traversal, Content Awareness |
-| TriSQL-style routing | Difficulty-based routing concepts |
-| [Snowflake Cortex Analyst](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst) | Semantic View YAML glossary format |
-| Wren / MinusX / Vanna-style patterns | Semantic assets, trusted query memory, evidence-first retrieval |
+| `.env` | credentials and environment variables |
+| `config/settings.yaml` | pipeline and runtime settings |
+| `config/model_routing.yaml` | model selection by stage |
+| `config/error_taxonomy.json` | SQL error taxonomy |
+| `config/trino_dialect_rules.txt` | Trino-specific SQL rules |
+| `config/cost_guards.yaml` | query safety / cost constraints |
+| `config/semantic_model.yaml` | semantic asset pack |
+| `config/table_annotations.yaml` | table-level notes and warnings |
+| `config/openmetadata.yaml` | OpenMetadata integration settings |
+| `config/metabase_mcp.yaml` | Metabase integration settings |
 
-## Notes For Contributors
+## Repository Layout
 
-- Start with [docs/ai-handoff.md](docs/ai-handoff.md).
-- Do not hardcode company-specific semantics into Python logic.
-- Put business logic into semantic/domain-pack assets.
-- Prefer deterministic planning over expanding the fallback generator.
-- Update the handoff and roadmap docs when the architecture or progress changes materially.
+```text
+raven/
+├── config/           # configuration and semantic assets
+├── docs/             # handoff, roadmap, build notes
+├── preprocessing/    # metadata extraction and indexing
+├── prompts/          # prompt templates
+├── src/raven/
+│   ├── pipeline.py
+│   ├── semantic_assets.py
+│   ├── contracts/
+│   ├── retrieval/
+│   ├── schema/
+│   ├── grounding/
+│   ├── query_families/
+│   ├── planning/
+│   ├── sql/
+│   ├── generation/
+│   ├── validation/
+│   ├── output/
+│   ├── connectors/
+│   └── feedback/
+├── tests/
+├── web/
+└── k8s/
+```
 
-## Contributing
+## Development
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Setup
+### Setup
 
 ```bash
 python -m venv .venv
@@ -275,18 +258,23 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 ```
 
-### Running Tests
+### Run tests
 
 ```bash
 pytest tests/
 ```
 
+For accuracy-core work, start with the suites listed in [docs/ai-handoff.md](docs/ai-handoff.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+If you materially change architecture or progress state, also update:
+
+- [docs/ai-handoff.md](docs/ai-handoff.md)
+- [docs/accuracy-first-10-10-roadmap.md](docs/accuracy-first-10-10-roadmap.md)
+
 ## License
 
-This project is licensed under the Apache License 2.0 — see [LICENSE](LICENSE) for details.
-
----
-
-<p align="center">
-  <strong>RAVEN</strong> — Because your data warehouse deserves better than <code>SELECT * FROM guessing</code>
-</p>
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).

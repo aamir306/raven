@@ -95,9 +95,9 @@ As of `March 7, 2026`:
 
 Rough completion:
 
-- overall `10/10` roadmap: `~70%`
-- accuracy-core architecture: `~92%`
-- production/runtime hardening: `~43%`
+- overall `10/10` roadmap: `~85%`
+- accuracy-core architecture: `~98%`
+- production/runtime hardening: `~60%`
 
 What is implemented:
 
@@ -1145,34 +1145,48 @@ These should no longer be the default path for common analytics questions.
 
 ### Current Workstream Status
 
-- Workstream A: `Low progress`
-  - tests improved for new accuracy-path slices, but benchmark-first release gating is not implemented yet
-- Workstream B: `Partial`
+- Workstream A: `Strong partial`
+  - benchmark runner implemented, enriched test set (20 business-critical cases) created
+  - benchmark baseline tracking in place
+  - still needs: benchmark delta as CI release gate
+- Workstream B: `Nearly complete`
   - contract registry, contract models, and validation are implemented
-  - instruction assets as compiled policy objects are not implemented yet
+  - instruction assets are now first-class compiled policy objects (InstructionCompiler, InstructionSet)
+  - both legacy business_rules and structured YAML compilation supported
 - Workstream C: `Strong partial`
   - exact trusted-query path is implemented
-  - trusted query families work for exact, near-template, Metabase-backed, value-grounded, dimension-swapped, join-swapped, metric-swapped, and grouped comparison cases
-  - provenance is still lightweight and Metabase asset sync is still incomplete
+  - trusted query families work for all substitution types
+  - full provenance tracking with audit trail, compilation confidence, evidence strength
+  - query family registry with statistics and persistence
+  - Metabase asset sync is still incomplete
 - Workstream D: `Strong partial`
   - value grounding exists
-  - value indexes, richer ambiguity policy, and explicit clarification UX are still missing
+  - value indexes implemented, ambiguity policy implemented
+  - explicit clarification UX still missing
 - Workstream E: `Strong partial`
   - deterministic linker and join policy exist
-  - upstream schema narrowing still relies too much on LLM stages, but schema selector seeding and pruning are now materially more deterministic
-- Workstream F: `Strong partial`
+  - upstream schema narrowing improved but still relies on LLM for some cases
+- Workstream F: `Nearly complete`
   - typed query plans and deterministic planner exist
-  - a narrow AST-style compiler exists, but not a full `sqlglot`-backed compiler
-- Workstream G: `Low progress`
-  - fallback is bypassed more often, but fallback itself is not yet constrained enough
-- Workstream H: `Strong partial`
+  - narrow AST-style compiler exists
+  - sqlglot-backed Trino SQL compiler with parse/validate/transform/emit
+  - function rewrites, limit enforcement, table allowlist checking
+- Workstream G: `Strong partial`
+  - constrained fallback generation implemented (constrained_sql.py)
+  - sqlglot validation pass integrated into generation stage
+- Workstream H: `Nearly complete`
   - plan-aware validation exists
-  - execution-grounded judging and abstention now exist
-  - real cost-guard integration and calibrated confidence modeling are not complete
-- Workstream I: `Low progress`
-  - correctness-oriented work happened before runtime hardening; distributed/runtime fixes are still mostly pending
-- Workstream J: `Partial`
-  - typed subsystems have improved the hot path, but legacy path cleanup and CI are still incomplete
+  - execution-grounded judging and abstention exist
+  - confidence model with calibrated scoring (plan + cost + execution + evidence + ambiguity)
+  - CostGuard integrated into selection and abstention logic
+- Workstream I: `Partial`
+  - Redis cache + rate limiting implemented
+  - Trino session pooling with bounded concurrency implemented
+  - ANN/vector retrieval redesign and distributed state cleanup still pending
+- Workstream J: `Strong partial`
+  - GitHub Actions CI created (lint, test matrix 3.11-3.13, benchmark-smoke)
+  - pipeline wiring for all new modules complete
+  - legacy path cleanup still partially incomplete
 - Workstream K: `Not started`
 - Workstream L: `Not started`
 

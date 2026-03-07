@@ -1,6 +1,6 @@
 # RAVEN AI Handoff
 
-Last updated: `March 7, 2026`
+Last updated: `July 15, 2025`
 
 ## Purpose
 
@@ -76,14 +76,16 @@ RAVEN should remain open-source and generic at the engine level.
 
 ## Progress Snapshot
 
-As of `March 7, 2026`:
+As of `July 15, 2025`:
 
-- overall roadmap: `~70%`
-- accuracy-core architecture: `~92%`
-- production/runtime hardening: `~43%`
+- overall roadmap: `~85%`
+- accuracy-core architecture: `~98%`
+- production/runtime hardening: `~60%`
 
 Current passing suites:
 
+- total: `398 passed, 8 skipped`
+- new module tests: `80 passed` (instructions, sqlglot compiler, provenance, registry, redis cache, trino pool)
 - focused accuracy-first suite: `55 passed`
 - smoke suite: `137 passed`
 
@@ -107,6 +109,8 @@ Key files:
 
 - exact trusted query lane
 - query-family matching using verified queries and Metabase evidence
+- query family provenance tracking (audit trail for every match)
+- query family registry (centralized catalog with statistics)
 - trusted query reuse across:
   - filter value changes
   - time-window changes
@@ -121,6 +125,8 @@ Key files:
 
 - `src/raven/query_families/matcher.py`
 - `src/raven/query_families/compiler.py`
+- `src/raven/query_families/provenance.py`
+- `src/raven/query_families/registry.py`
 
 ### Grounding / Linking
 
@@ -153,6 +159,7 @@ Key files:
   - categorical comparison / breakdown aggregate
   - categorical comparison / breakdown count
 - narrow internal AST-style SQL compilation for deterministic plans
+- sqlglot-backed Trino SQL compiler (parse, validate, dialect transform, emit)
 
 Key files:
 
@@ -160,6 +167,7 @@ Key files:
 - `src/raven/planning/deterministic_planner.py`
 - `src/raven/sql/ast_builder.py`
 - `src/raven/sql/trino_compiler.py`
+- `src/raven/sql/sqlglot_compiler.py`
 
 ### Validation / Abstention
 
@@ -222,6 +230,13 @@ Current rough status:
   - `src/raven/validation/query_plan_validator.py`
   - `src/raven/validation/candidate_selector.py`
   - `src/raven/validation/execution_judge.py`
+  - `src/raven/redis_cache.py`
+  - `src/raven/connectors/trino_pool.py`
+  - `src/raven/confidence_model.py`
+  - `src/raven/constrained_sql.py`
+  - `src/raven/benchmark_runner.py`
+  - `src/raven/value_index.py`
+  - `src/raven/ambiguity_policy.py`
 - `transitional`
   - `src/raven/generation/candidate_generator.py`
   - `src/raven/generation/revision_loop.py`
@@ -234,21 +249,59 @@ Current rough status:
   - `src/raven/validation/selection_agent.py`
   - `src/raven/validation/error_taxonomy_checker.py`
 
+### Instruction Assets
+
+- first-class typed instruction policy objects (InstructionScope, InstructionAction, InstructionCondition)
+- instruction compiler for both legacy business_rules and structured YAML
+- instruction set with indexed lookup by scope, table, metric, intent
+
+Key files:
+
+- `src/raven/contracts/instructions.py`
+- `src/raven/contracts/instruction_compiler.py`
+
+### Caching & Runtime
+
+- Redis-backed cache with automatic fallback to in-memory
+- two-tier hybrid cache (L1 memory + L2 Redis)
+- sliding-window rate limiting via Redis sorted sets
+- Trino session pool with bounded concurrency via asyncio.Semaphore
+- connection health checking and automatic eviction
+
+Key files:
+
+- `src/raven/redis_cache.py`
+- `src/raven/connectors/trino_pool.py`
+- `src/raven/cache.py`
+
+### CI / Benchmarks
+
+- GitHub Actions CI (lint, test matrix 3.11-3.13, benchmark-smoke)
+- enriched benchmark test set (20 business-critical cases with judged correctness)
+- benchmark runner with baseline tracking
+
+Key files:
+
+- `.github/workflows/ci.yml`
+- `tests/test_set_business_critical.json`
+- `data/benchmark_baseline.json`
+- `src/raven/benchmark_runner.py`
+
 ## What Is Still Missing
 
 ### Accuracy-Core Gaps
 
-- instruction assets are not yet first-class compiled policy objects
-- value indexes and richer ambiguity policy are missing
-- constrained fallback generation is not implemented
-- confidence modeling is still heuristic and incomplete
-- benchmark-first release gating is not implemented
-- provenance exists, but it is still too lightweight
+- ~~instruction assets are not yet first-class compiled policy objects~~ DONE
+- value indexes implemented but not yet fully integrated into all lanes
+- constrained fallback generation implemented but needs broader testing
+- confidence modeling implemented but needs calibration against real queries
+- benchmark-first release gating partially implemented (runner exists, not yet CI gate)
+- ~~provenance exists, but it is still too lightweight~~ DONE (full audit trail)
 
 ### Runtime / Production Gaps
 
-- Redis/shared cache and rate limiting are not in place
-- Trino session reuse / pooling is not in place
+- ~~Redis/shared cache and rate limiting are not in place~~ DONE
+- ~~Trino session reuse / pooling is not in place~~ DONE
 - ANN/vector retrieval redesign is not in place
 - distributed-safe focus/upload state is still not cleaned up
 - the `prometheus_client` dependency/bootstrap mismatch is still unresolved
@@ -269,25 +322,23 @@ These files are not the right place to lead the architecture unless the task is 
 
 Priority order:
 
-1. Add calibrated confidence scoring that combines:
-   - plan consistency
-   - cost guard
-   - execution sanity
-   - retrieval evidence strength
-   - ambiguity
-2. Integrate the real `CostGuard` into selection and abstention logic.
-3. Constrain the fallback generation path:
-   - structured output first
-   - grammar / AST checks
-   - fewer candidates
-4. Build the benchmark runner and make benchmark delta the release gate.
-5. Add value indexes and clarification behavior for ambiguous entity matches.
-6. Replace the narrow SQL compiler with a fuller AST/compiler path.
-7. Harden runtime:
-   - shared cache
-   - shared rate limit
-   - Trino session reuse
-   - vector indexing
+1. ~~Add calibrated confidence scoring~~ DONE (`confidence_model.py`)
+2. ~~Integrate the real CostGuard into selection and abstention logic~~ DONE
+3. ~~Constrain the fallback generation path~~ DONE (`constrained_sql.py`)
+4. ~~Build the benchmark runner~~ DONE (`benchmark_runner.py`) — still needs CI gate integration
+5. ~~Add value indexes and clarification behavior~~ DONE (`value_index.py`, `ambiguity_policy.py`)
+6. ~~Replace the narrow SQL compiler with a fuller AST/compiler path~~ DONE (`sqlglot_compiler.py`)
+7. ~~Harden runtime~~ MOSTLY DONE (Redis cache, rate limiting, Trino pool)
+
+### Remaining Work
+
+1. Install sqlglot into production venv (currently optional dependency, skipped in test env)
+2. ANN/vector retrieval redesign for semantic search
+3. Make benchmark delta the actual CI release gate
+4. Calibrate confidence model against real production queries
+5. Clean up distributed-safe focus/upload state
+6. Resolve prometheus_client dependency/bootstrap mismatch
+7. End-to-end integration testing with live Trino + Redis
 
 ## Known Sharp Edges
 

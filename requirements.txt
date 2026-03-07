@@ -38,6 +38,12 @@ pyyaml>=6.0.1
 # Async HTTP
 httpx>=0.25.0
 
+# SQL AST / dialect transpilation
+sqlglot>=26.0.0
+
+# Redis (optional, for distributed cache + rate limiting)
+redis>=5.0.0
+
 # Logging
 structlog>=23.2.0
 
