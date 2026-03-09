@@ -252,6 +252,15 @@ class MetabaseClient:
             if not c.get("archived")
         ]
 
+    async def get_collection_meta(self, collection_id: int) -> dict:
+        """Fetch a single collection for sync/preview naming."""
+        collection = await self._get(f"/api/collection/{collection_id}")
+        return {
+            "id": collection.get("id", collection_id),
+            "name": collection.get("name", f"Collection #{collection_id}"),
+            "description": collection.get("description", ""),
+        }
+
     async def get_collection_items(self, collection_id: int) -> list[dict]:
         """Fetch all native-query cards in a collection."""
         items = await self._get(f"/api/collection/{collection_id}/items?models=card")

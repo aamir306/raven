@@ -1235,3 +1235,241 @@ def test_pipeline_returns_ambiguous_when_execution_judge_rejects_result(monkeypa
     assert result["status"] == "ambiguous"
     assert "validate the sql or result" in result["message"].lower()
     assert "unexpected_row_count:2" in result["validation_issues"]
+
+
+def test_pipeline_returns_metadata_lookup_response_for_table_question(monkeypatch):
+    import sys
+    import types
+
+    fake_prom = types.SimpleNamespace(
+        CollectorRegistry=lambda *args, **kwargs: object(),
+        Counter=lambda *args, **kwargs: object(),
+        Gauge=lambda *args, **kwargs: object(),
+        Histogram=lambda *args, **kwargs: object(),
+        Summary=lambda *args, **kwargs: object(),
+        generate_latest=lambda *args, **kwargs: b"",
+        CONTENT_TYPE_LATEST="text/plain",
+    )
+    monkeypatch.setitem(sys.modules, "prometheus_client", fake_prom)
+
+    import src.raven.pipeline as pipeline_module
+    from src.raven.pipeline import Pipeline
+    from src.raven.router.classifier import Difficulty
+
+    class _DummyMetrics:
+        def query_started(self):
+            return None
+
+        def record_cache_hit(self):
+            return None
+
+        def record_cache_miss(self):
+            return None
+
+        def query_completed(self, **kwargs):
+            return None
+
+        def observe_stage(self, *args, **kwargs):
+            return None
+
+        def record_stage_error(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(pipeline_module, "METRICS", _DummyMetrics())
+
+    class _NoExecuteTrino:
+        def execute(self, sql):
+            raise AssertionError("metadata lookup should not execute SQL")
+
+        def explain(self, sql):
+            return "ok"
+
+    class _DummyPgVector:
+        pass
+
+    pipeline = Pipeline(
+        trino=_NoExecuteTrino(),
+        pgvector=_DummyPgVector(),
+        openai=_DummyOpenAI(),
+    )
+    pipeline.schema_selector.set_column_catalog(
+        {
+            "monitoring.trino.query_logs": [],
+            "analytics.orders": [],
+        }
+    )
+
+    async def _resolve_question(question, conversation_id):
+        return {"resolved_question": question, "is_followup": False}
+
+    async def _router(ctx):
+        ctx.difficulty = Difficulty.SIMPLE
+
+    async def _retrieval(ctx):
+        ctx.om_table_candidates = [
+            {
+                "fqn": "monitoring.trino.query_logs",
+                "name": "query_logs",
+                "description": "Trino query execution log table",
+                "domain": "platform",
+                "score": 0.93,
+            }
+        ]
+        ctx.doc_snippets = [
+            {
+                "title": "Trino Logging",
+                "table": "monitoring.trino.query_logs",
+                "content": "Contains Trino query history.",
+                "similarity": 0.81,
+                "trust_level": "reviewed",
+                "related_tables": ["monitoring.trino.query_logs"],
+            }
+        ]
+
+    async def _schema(ctx):
+        raise AssertionError("schema selection should be skipped for metadata lookup")
+
+    async def _planning(ctx):
+        raise AssertionError("planning should be skipped for metadata lookup")
+
+    async def _generation(ctx):
+        raise AssertionError("generation should be skipped for metadata lookup")
+
+    monkeypatch.setattr(pipeline.conversation, "resolve_question", _resolve_question)
+    monkeypatch.setattr(pipeline, "_stage_router", _router)
+    monkeypatch.setattr(pipeline, "_stage_retrieval", _retrieval)
+    monkeypatch.setattr(pipeline, "_stage_schema", _schema)
+    monkeypatch.setattr(pipeline, "_stage_planning", _planning)
+    monkeypatch.setattr(pipeline, "_stage_generation", _generation)
+
+    result = asyncio.run(
+        pipeline.generate("what table can give me trino query logs of today?")
+    )
+
+    assert result["status"] == "success"
+    assert result["debug"]["query_plan"]["intent"] == "METADATA_LOOKUP"
+    assert result["sql"] == "-- metadata lookup request; no SQL executed"
+    assert result["data"][0]["table_name"] == "monitoring.trino.query_logs"
+    assert "metadata lookup question" in result["summary"].lower()
+
+
+def test_metadata_lookup_prefers_lexically_matching_table_over_irrelevant_similarity(monkeypatch):
+    import sys
+    import types
+
+    fake_prom = types.SimpleNamespace(
+        CollectorRegistry=lambda *args, **kwargs: object(),
+        Counter=lambda *args, **kwargs: object(),
+        Gauge=lambda *args, **kwargs: object(),
+        Histogram=lambda *args, **kwargs: object(),
+        Summary=lambda *args, **kwargs: object(),
+        generate_latest=lambda *args, **kwargs: b"",
+        CONTENT_TYPE_LATEST="text/plain",
+    )
+    monkeypatch.setitem(sys.modules, "prometheus_client", fake_prom)
+
+    import src.raven.pipeline as pipeline_module
+    from src.raven.pipeline import Pipeline
+    from src.raven.router.classifier import Difficulty
+
+    class _DummyMetrics:
+        def query_started(self):
+            return None
+
+        def record_cache_hit(self):
+            return None
+
+        def record_cache_miss(self):
+            return None
+
+        def query_completed(self, **kwargs):
+            return None
+
+        def observe_stage(self, *args, **kwargs):
+            return None
+
+        def record_stage_error(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(pipeline_module, "METRICS", _DummyMetrics())
+
+    class _NoExecuteTrino:
+        def execute(self, sql):
+            raise AssertionError("metadata lookup should not execute SQL")
+
+        def explain(self, sql):
+            return "ok"
+
+    class _DummyPgVector:
+        pass
+
+    pipeline = Pipeline(
+        trino=_NoExecuteTrino(),
+        pgvector=_DummyPgVector(),
+        openai=_DummyOpenAI(),
+    )
+    pipeline.schema_selector.set_column_catalog(
+        {
+            "cdp.trino_logs.trino_queries": [],
+            "cdp.cdp_revenue.gold_batches": [],
+            "cdp.cdp_revenue.gold_batch_plans": [],
+        }
+    )
+
+    async def _resolve_question(question, conversation_id):
+        return {"resolved_question": question, "is_followup": False}
+
+    async def _router(ctx):
+        ctx.difficulty = Difficulty.SIMPLE
+
+    async def _retrieval(ctx):
+        ctx.om_table_candidates = [
+            {
+                "fqn": "cdp.cdp_revenue.gold_batches",
+                "name": "gold_batches",
+                "description": "Batch analytics table",
+                "domain": "revenue",
+                "score": 0.95,
+            },
+            {
+                "fqn": "cdp.trino_logs.trino_queries",
+                "name": "trino_queries",
+                "description": "Trino query log history and execution metadata",
+                "domain": "platform",
+                "score": 0.72,
+            },
+        ]
+        ctx.doc_snippets = [
+            {
+                "title": "Trino query logs",
+                "table": "cdp.trino_logs.trino_queries",
+                "content": "Contains Trino query logs data and execution details.",
+                "similarity": 0.65,
+                "trust_level": "reviewed",
+                "related_tables": ["cdp.trino_logs.trino_queries"],
+            }
+        ]
+
+    async def _schema(ctx):
+        raise AssertionError("schema selection should be skipped for metadata lookup")
+
+    async def _planning(ctx):
+        raise AssertionError("planning should be skipped for metadata lookup")
+
+    async def _generation(ctx):
+        raise AssertionError("generation should be skipped for metadata lookup")
+
+    monkeypatch.setattr(pipeline.conversation, "resolve_question", _resolve_question)
+    monkeypatch.setattr(pipeline, "_stage_router", _router)
+    monkeypatch.setattr(pipeline, "_stage_retrieval", _retrieval)
+    monkeypatch.setattr(pipeline, "_stage_schema", _schema)
+    monkeypatch.setattr(pipeline, "_stage_planning", _planning)
+    monkeypatch.setattr(pipeline, "_stage_generation", _generation)
+
+    result = asyncio.run(
+        pipeline.generate("which table can give me trino query logs data?")
+    )
+
+    assert result["status"] == "success"
+    assert result["data"][0]["table_name"] == "cdp.trino_logs.trino_queries"
+    assert result["debug"]["query_plan"]["intent"] == "METADATA_LOOKUP"

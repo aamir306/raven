@@ -1305,3 +1305,56 @@ async def metabase_list_collections(body: dict = None):
     overrides = _extract_browser_overrides(body) if body else {}
     client = _get_metabase_client(overrides)
     return {"collections": await client.list_collections()}
+
+
+@metabase_router.post("/sync-query-families")
+async def metabase_sync_query_families(body: dict, pipeline=Depends(get_pipeline)):
+    """Persist Metabase cards/questions into the query-family registry."""
+    overrides = _extract_browser_overrides(body or {})
+    client = _get_metabase_client(overrides)
+    persist_embeddings = bool(body.get("persist_embeddings", False))
+
+    scope_type = ""
+    scope_id: int | str = ""
+    scope_name = ""
+    cards: list[dict] = []
+
+    if body.get("dashboard_id"):
+        scope_type = "dashboard"
+        scope_id = int(body["dashboard_id"])
+        meta = await client.get_dashboard_meta(scope_id)
+        cards = await client.get_dashboard_cards(scope_id)
+        scope_name = meta.get("name", f"Dashboard #{scope_id}")
+    elif body.get("collection_id"):
+        scope_type = "collection"
+        scope_id = int(body["collection_id"])
+        meta = await client.get_collection_meta(scope_id)
+        cards = await client.get_collection_items(scope_id)
+        scope_name = meta.get("name", f"Collection #{scope_id}")
+    elif body.get("question_id"):
+        scope_type = "question"
+        scope_id = int(body["question_id"])
+        card = await client.get_question(scope_id)
+        card["kind"] = "metabase_question"
+        cards = [card]
+        scope_name = card.get("name", f"Question #{scope_id}")
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide one of dashboard_id, collection_id, or question_id",
+        )
+
+    result = await pipeline.sync_metabase_query_families(
+        cards=cards,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        scope_name=scope_name,
+        persist_embeddings=persist_embeddings,
+    )
+    return {
+        "status": "ok",
+        "scope_type": scope_type,
+        "scope_id": scope_id,
+        "scope_name": scope_name,
+        **result,
+    }

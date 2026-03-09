@@ -203,6 +203,30 @@ class TestQueryFamilyRegistry:
         assert entry is not None
         assert entry.family_key == "revenue_by_date"
 
+    def test_registry_keeps_multiple_entries_for_same_family_key(self):
+        reg = QueryFamilyRegistry()
+        reg.register(FamilyEntry(
+            family_key="revenue_by_date",
+            template_question="Revenue by date",
+            template_sql="SELECT ds, SUM(amount) FROM orders GROUP BY ds",
+            tables_used=["orders"],
+            source="metabase_sync",
+            metadata={"scope_key": "dashboard:1", "asset_id": "10"},
+        ))
+        reg.register(FamilyEntry(
+            family_key="revenue_by_date",
+            template_question="Revenue by date",
+            template_sql="SELECT ds, SUM(net_amount) FROM revenue_daily GROUP BY ds",
+            tables_used=["revenue_daily"],
+            source="metabase_sync",
+            metadata={"scope_key": "dashboard:2", "asset_id": "10"},
+        ))
+
+        assert reg.size == 2
+        entries = reg.lookup_all("revenue_by_date")
+        assert len(entries) == 2
+        assert {e.metadata["scope_key"] for e in entries} == {"dashboard:1", "dashboard:2"}
+
     def test_lookup_missing(self):
         reg = self._make_registry()
         assert reg.lookup("nonexistent") is None

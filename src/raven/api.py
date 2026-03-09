@@ -105,13 +105,6 @@ except ImportError:
     logger.warning("web.routes not found — using inline routes only")
 
 
-# ── Static UI (serve React build if available) ────────────────────────
-
-UI_DIR = Path("web/ui/build")
-if UI_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
-
-
 # ── Core Endpoints (always available) ─────────────────────────────────
 
 
@@ -123,4 +116,12 @@ async def health():
         "version": "0.2.0",
         "pipeline_ready": _pipeline is not None,
     }
+
+
+# ── Static UI (serve React build if available) ────────────────────────
+# IMPORTANT: This must be LAST — the catch-all mount intercepts all unmatched paths.
+
+UI_DIR = Path("web/ui/build")
+if UI_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
 

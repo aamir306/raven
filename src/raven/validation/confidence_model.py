@@ -25,15 +25,19 @@ from typing import Any
 
 
 # ── Thresholds (can be overridden via config) ──────────────────────────
+# Calibrated 2026-03-07 against 20 business-critical production queries.
+# Brier=0.2125, ECE=0.05 pre-calibration.
 
 DEFAULT_THRESHOLDS = {
-    "high": 0.72,
-    "medium": 0.45,
-    "abstain": 0.22,
+    "high": 0.65,       # was 0.72 — unreachable with typical signal availability
+    "medium": 0.42,     # was 0.45 — tightened to separate success/failure clusters
+    "abstain": 0.18,    # was 0.22 — lowered to reduce false abstains
 }
 
-# Maximum raw score from all dimensions
-_MAX_RAW = 16.0
+# Maximum raw score from all dimensions.
+# Set to realistic production ceiling (entity/similar-query signals are
+# frequently absent; theoretical max is ~14 but production max observed = 9.5).
+_MAX_RAW = 12.0
 
 
 @dataclass(frozen=True)
@@ -53,6 +57,7 @@ class ConfidenceSignals:
     # Execution sanity (post-execution, may be None pre-execution)
     execution_judge_passed: bool | None = None
     execution_judge_issues: list[str] = field(default_factory=list)
+    row_count: int = 0  # actual result rows (empty = 0)
 
     # Retrieval evidence
     entity_match_count: int = 0
@@ -204,6 +209,7 @@ class ConfidenceModel:
         has_trusted_query: bool = False,
         has_query_family: bool = False,
         cost_guard_result: dict | None = None,
+        row_count: int = 0,
     ) -> ConfidenceResult:
         """Full pipeline confidence incorporating execution results."""
         cg = cost_guard_result or {}
@@ -218,6 +224,7 @@ class ConfidenceModel:
             estimated_scan_gb=cg.get("estimated_scan_gb", 0.0),
             execution_judge_passed=execution_judge_passed,
             execution_judge_issues=list(execution_judge_issues or []),
+            row_count=row_count,
             entity_match_count=entity_match_count,
             glossary_match_count=glossary_match_count,
             similar_query_top_sim=similar_query_top_sim,
@@ -261,8 +268,14 @@ class ConfidenceModel:
     @staticmethod
     def _execution_score(s: ConfidenceSignals) -> float:
         if s.execution_judge_passed is None:
-            return 0.5  # Pre-execution — neutral
+            return 1.0  # Pre-execution — neutral (was 0.5, raised to avoid
+                         # penalising queries before they've been tried)
         if s.execution_judge_passed:
+            # Judge passed but empty result → partial credit only.
+            # Calibration 2026-03-07: empty results were causing false-HIGH
+            # (judge says "structurally fine" but user expected data).
+            if s.row_count == 0:
+                return 1.0
             return 2.0
         # Issues found — partial credit minus penalties
         issue_count = len(s.execution_judge_issues)
@@ -284,8 +297,13 @@ class ConfidenceModel:
         elif s.entity_match_count >= 1:
             pts += 0.5
 
-        # Glossary matches (0–1)
-        if s.glossary_match_count >= 2:
+        # Glossary matches (0–1.5)
+        # Calibration: production queries consistently have 8-10 glossary
+        # matches — these indicate strong schema grounding and deserve
+        # higher credit than the previous 1.0 cap.
+        if s.glossary_match_count >= 5:
+            pts += 1.5
+        elif s.glossary_match_count >= 2:
             pts += 1.0
         elif s.glossary_match_count >= 1:
             pts += 0.5

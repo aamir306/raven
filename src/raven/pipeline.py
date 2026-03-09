@@ -12,7 +12,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import pickle
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,6 +44,7 @@ from .cache import QueryCache
 from .redis_cache import HybridCache, RedisCache
 from .grounding import ValueResolver
 from .grounding.ambiguity_policy import AmbiguityPolicy
+from .metabase import MetabaseQueryFamilySync
 from .metrics import METRICS
 from .planning import DeterministicPlanner
 from .query_families.provenance import build_provenance_from_match
@@ -50,6 +53,101 @@ from .semantic_assets import SemanticModelStore
 from .sql.sqlglot_compiler import TrinoSQLCompiler
 
 logger = logging.getLogger(__name__)
+
+_METADATA_LOOKUP_PATTERNS = [
+    re.compile(r"\b(?:what|which)\s+(?:\w+\s+){0,3}(?:table|tables|column|columns|schema|schemas)\b", re.IGNORECASE),
+    re.compile(r"\bwhere\s+can\s+i\s+find\b", re.IGNORECASE),
+    re.compile(r"\bwhere\s+do\s+i\s+find\b", re.IGNORECASE),
+    re.compile(r"\bis\s+there\s+(?:a|any)\s+(?:table|tables)\b", re.IGNORECASE),
+    re.compile(r"\b(?:table|tables)\s+(?:has|have|contains|contain|stores|store|holds|hold)\b", re.IGNORECASE),
+    re.compile(r"\b(?:table|tables)\s+can\s+give\s+me\b", re.IGNORECASE),
+]
+# Schema-describe shortcut: matches explicit requests for column/schema info on a named table.
+# Captures the FQN table name so we can run SHOW COLUMNS FROM directly.
+_SCHEMA_DESCRIBE_PATTERNS = [
+    # "what are all columns in cdp.x.y", "what columns does cdp.x.y have"
+    re.compile(
+        r"\b(?:what|which|show|list|get|give)\s+(?:\w+\s+){0,4}"
+        r"(?:columns?|fields?|schema)\s+(?:in|of|from|for|does)\s+"
+        r"(?P<table>[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*)\b",
+        re.IGNORECASE,
+    ),
+    # "describe cdp.x.y", "describe table cdp.x.y"
+    re.compile(
+        r"\b(?:describe|desc)\s+(?:table\s+)?"
+        r"(?P<table>[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*)\b",
+        re.IGNORECASE,
+    ),
+    # "show columns from cdp.x.y"
+    re.compile(
+        r"\bshow\s+columns\s+(?:from|in)\s+"
+        r"(?P<table>[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*)\b",
+        re.IGNORECASE,
+    ),
+    # "columns of cdp.x.y", "schema of cdp.x.y"
+    re.compile(
+        r"\b(?:columns?|fields?|schema)\s+(?:of|in|from)\s+"
+        r"(?P<table>[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*)\b",
+        re.IGNORECASE,
+    ),
+]
+_DISTINCT_VALUE_LOOKUP_PATTERNS = [
+    re.compile(
+        r"\b(?:what\s+(?:are|is)\s+)?(?:the\s+)?distinct\s+(?:values?\s+of\s+)?"
+        r"(?P<column>[a-zA-Z_][a-zA-Z0-9_]*)\s+(?:in|from|for)\s+"
+        r"(?P<table>[a-zA-Z_][a-zA-Z0-9_.]*)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:show|list|give|find)\s+(?:me\s+)?(?:the\s+)?distinct\s+"
+        r"(?:values?\s+of\s+)?(?P<column>[a-zA-Z_][a-zA-Z0-9_]*)\s+(?:in|from|for)\s+"
+        r"(?P<table>[a-zA-Z_][a-zA-Z0-9_.]*)\b",
+        re.IGNORECASE,
+    ),
+]
+# Matches fully-qualified table references like cdp.schema.table in user questions
+_FQN_TABLE_RE = re.compile(
+    r"\b([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\b",
+    re.IGNORECASE,
+)
+
+_METADATA_SKIP_TOKENS = {
+    "a",
+    "all",
+    "an",
+    "and",
+    "by",
+    "can",
+    "column",
+    "columns",
+    "do",
+    "find",
+    "for",
+    "from",
+    "get",
+    "give",
+    "has",
+    "have",
+    "how",
+    "i",
+    "in",
+    "is",
+    "logs",
+    "me",
+    "of",
+    "schema",
+    "show",
+    "store",
+    "stores",
+    "table",
+    "tables",
+    "the",
+    "to",
+    "today",
+    "what",
+    "where",
+    "which",
+}
 
 
 @dataclass
@@ -78,6 +176,7 @@ class PipelineContext:
     preferred_tables: list[str] = field(default_factory=list)
     trusted_query_match: dict | None = None
     query_family_match: dict | None = None
+    query_intent: str = "DATA_QUERY"
     instruction_matches: list[dict] = field(default_factory=list)
     metabase_evidence: list[dict] = field(default_factory=list)
     resolved_values: list[dict] = field(default_factory=list)
@@ -184,6 +283,13 @@ class Pipeline:
         self.sql_compiler = TrinoSQLCompiler()
         self.instruction_compiler = InstructionCompiler()
         self.family_registry = QueryFamilyRegistry()
+        self.query_family_registry_path = self._default_query_family_registry_path()
+        self.metabase_family_sync = MetabaseQueryFamilySync(
+            self.family_registry,
+            registry_path=self.query_family_registry_path,
+            pgvector=pgvector,
+            openai=openai,
+        )
 
         # Compile instruction assets from semantic model rules
         if self.semantic_assets._rules:
@@ -207,6 +313,7 @@ class Pipeline:
 
         # Load preprocessing artifacts from data/ directory
         self._load_artifacts()
+        self._load_query_family_registry()
 
     def _load_artifacts(self) -> None:
         """Load preprocessing artifacts into stage modules at startup."""
@@ -258,6 +365,48 @@ class Pipeline:
                                 sum(len(v) for v in column_catalog.values()))
             except Exception as e:
                 logger.warning("Failed to load schema catalog: %s", e)
+
+    def _default_query_family_registry_path(self) -> Path:
+        configured = os.getenv("RAVEN_QUERY_FAMILY_REGISTRY_PATH", "").strip()
+        if configured:
+            return Path(configured).expanduser()
+        return Path(__file__).resolve().parents[2] / "data" / "query_family_registry.json"
+
+    def _load_query_family_registry(self) -> None:
+        try:
+            loaded = self.family_registry.load(self.query_family_registry_path)
+            if loaded:
+                self._refresh_external_query_families()
+                logger.info(
+                    "Loaded persisted query-family registry from %s (%d families)",
+                    self.query_family_registry_path,
+                    loaded,
+                )
+        except Exception as exc:
+            logger.warning("Failed to load query-family registry: %s", exc)
+
+    def _refresh_external_query_families(self) -> None:
+        external_assets = self.family_registry.export_assets(source_prefix="metabase_sync")
+        self.semantic_assets.set_external_query_families(external_assets)
+
+    async def sync_metabase_query_families(
+        self,
+        *,
+        cards: list[dict[str, Any]],
+        scope_type: str,
+        scope_id: str | int,
+        scope_name: str,
+        persist_embeddings: bool = False,
+    ) -> dict[str, Any]:
+        result = await self.metabase_family_sync.sync_cards(
+            cards,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            scope_name=scope_name,
+            persist_embeddings=persist_embeddings,
+        )
+        self._refresh_external_query_families()
+        return result
 
     async def generate(
         self,
@@ -346,11 +495,54 @@ class Pipeline:
             if not ctx.entity_matches and not ctx.glossary_matches:
                 await self._run_stage("retrieval", self._stage_retrieval, ctx, stage_hook)
 
+            # ── Extract explicit FQN table references from question ────
+            fqn_tables = _FQN_TABLE_RE.findall(ctx.user_question)
+            if fqn_tables:
+                logger.info("Explicit FQN tables in question: %s", fqn_tables)
+                # Prepend so they take priority
+                ctx.preferred_tables = list(
+                    dict.fromkeys(fqn_tables + ctx.preferred_tables)
+                )
+
+            ctx.query_intent = self._infer_query_intent(ctx.user_question)
+            if ctx.query_intent == "METADATA_LOOKUP":
+                metadata_response = self._metadata_lookup_response(ctx)
+                if metadata_response is not None:
+                    ctx.stage_timings["total"] = time.monotonic() - pipeline_start
+                    ctx.total_cost = self.openai.get_cost_summary().get("total_usd", 0.0)
+                    metadata_response["timings"] = ctx.stage_timings
+                    metadata_response["cost"] = ctx.total_cost
+                    METRICS.query_completed(
+                        difficulty=ctx.difficulty.value if ctx.difficulty else "unknown",
+                        status=metadata_response.get("status", "success"),
+                        latency=ctx.stage_timings["total"],
+                        cost=ctx.total_cost,
+                        confidence=metadata_response.get("confidence", ctx.confidence),
+                    )
+                    self.cache.put(question, metadata_response)
+                    metadata_response["cached"] = False
+                    return metadata_response
+
+            if ctx.query_intent == "DISTINCT_VALUE_LOOKUP":
+                ctx.query_plan = self._distinct_value_lookup_plan(ctx.user_question)
+                if ctx.query_plan:
+                    ctx.selected_tables = list(ctx.query_plan.get("source_tables", []))
+                    ctx.confidence = ctx.query_plan.get("confidence", "HIGH")
+
+            if ctx.query_intent == "SCHEMA_DESCRIBE" and not ctx.query_plan:
+                ctx.query_plan = self._schema_describe_plan(ctx.user_question)
+                if ctx.query_plan:
+                    ctx.selected_tables = list(ctx.query_plan.get("source_tables", []))
+                    ctx.confidence = ctx.query_plan.get("confidence", "HIGH")
+
             # ── Stage 3: Schema Selection ──────────────────────────────
-            await self._run_stage("schema_selection", self._stage_schema, ctx, stage_hook)
+            _bypass_paths = {"DISTINCT_VALUE_LOOKUP", "SCHEMA_DESCRIBE"}
+            if not (ctx.query_plan and ctx.query_plan.get("path_type") in _bypass_paths):
+                await self._run_stage("schema_selection", self._stage_schema, ctx, stage_hook)
 
             # ── Stage 4: Deterministic Planning ───────────────────────
-            await self._run_stage("planning", self._stage_planning, ctx, stage_hook)
+            if not ctx.query_plan:
+                await self._run_stage("planning", self._stage_planning, ctx, stage_hook)
 
             # ── Stage 5: Test Probes (complex only, unresolved path) ──
             if ctx.difficulty == Difficulty.COMPLEX and not ctx.query_plan:
@@ -777,6 +969,7 @@ class Pipeline:
             ),
             has_query_family=bool(ctx.query_family_match and ctx.query_family_match.get("sql")),
             cost_guard_result=cost_guard_result,
+            row_count=ctx.row_count,
         )
         ctx.confidence = conf_result.band
         if conf_result.should_abstain:
@@ -986,6 +1179,359 @@ class Pipeline:
             seen.add(key)
             merged.append(item)
         return merged[:10]
+
+    @staticmethod
+    def _infer_query_intent(question: str) -> str:
+        normalized = " ".join(str(question).lower().split())
+        for pattern in _DISTINCT_VALUE_LOOKUP_PATTERNS:
+            if pattern.search(normalized):
+                return "DISTINCT_VALUE_LOOKUP"
+        for pattern in _SCHEMA_DESCRIBE_PATTERNS:
+            if pattern.search(normalized):
+                return "SCHEMA_DESCRIBE"
+        for pattern in _METADATA_LOOKUP_PATTERNS:
+            if pattern.search(normalized):
+                return "METADATA_LOOKUP"
+        return "DATA_QUERY"
+
+    def _distinct_value_lookup_plan(self, question: str) -> dict[str, Any] | None:
+        match = self._distinct_value_lookup_match(question)
+        if not match:
+            return None
+
+        table_name = match["table"]
+        column_name = match["column"]
+        if not self._catalog_has_column(table_name, column_name):
+            return None
+
+        return {
+            "path_type": "DISTINCT_VALUE_LOOKUP",
+            "intent": "DISTINCT_VALUE_LOOKUP",
+            "confidence": "HIGH",
+            "compiled_sql": (
+                f"SELECT DISTINCT {column_name}\n"
+                f"FROM {table_name}\n"
+                f"WHERE {column_name} IS NOT NULL\n"
+                f"ORDER BY {column_name}\n"
+                "LIMIT 100"
+            ),
+            "source_tables": [table_name],
+            "target_column": column_name,
+        }
+
+    @staticmethod
+    def _distinct_value_lookup_match(question: str) -> dict[str, str] | None:
+        normalized = " ".join(str(question or "").split())
+        for pattern in _DISTINCT_VALUE_LOOKUP_PATTERNS:
+            matched = pattern.search(normalized)
+            if not matched:
+                continue
+            return {
+                "column": str(matched.group("column") or "").strip(),
+                "table": str(matched.group("table") or "").strip(),
+            }
+        return None
+
+    def _schema_describe_plan(self, question: str) -> dict[str, Any] | None:
+        """Generate a SHOW COLUMNS plan when user asks about a table's schema."""
+        table_name = self._schema_describe_match(question)
+        if not table_name:
+            return None
+
+        # Only trust explicit 3-part FQN references
+        parts = table_name.split(".")
+        if len(parts) != 3 or not all(p.strip() for p in parts):
+            return None
+
+        logger.info("Schema describe shortcut for table: %s", table_name)
+        return {
+            "path_type": "SCHEMA_DESCRIBE",
+            "intent": "SCHEMA_DESCRIBE",
+            "confidence": "HIGH",
+            "compiled_sql": f"SHOW COLUMNS FROM {table_name}",
+            "source_tables": [table_name],
+        }
+
+    @staticmethod
+    def _schema_describe_match(question: str) -> str | None:
+        """Extract FQN table name from a schema-describe question."""
+        normalized = " ".join(str(question or "").split())
+        for pattern in _SCHEMA_DESCRIBE_PATTERNS:
+            matched = pattern.search(normalized)
+            if matched:
+                return str(matched.group("table") or "").strip()
+        return None
+
+    def _catalog_has_column(self, table_name: str, column_name: str) -> bool:
+        catalog = getattr(self.schema_selector, "_full_column_catalog", None) or {}
+        if not catalog:
+            return True
+
+        resolved_table = self.semantic_assets.resolve_table_name(
+            table_name,
+            set(catalog.keys()),
+        )
+        columns = catalog.get(resolved_table)
+        if not columns:
+            # If the table is a valid 3-part FQN (catalog.schema.table) but
+            # isn't in our preprocessed catalog, trust the user's explicit
+            # reference. Trino will validate at execution time.
+            parts = table_name.split(".")
+            if len(parts) == 3 and all(p.strip() for p in parts):
+                logger.info(
+                    "Table %s not in catalog; trusting explicit FQN reference",
+                    table_name,
+                )
+                return True
+            return False
+
+        known_columns = {
+            str(col.get("name") or col.get("column_name") or "").strip().lower()
+            for col in columns
+            if col.get("name") or col.get("column_name")
+        }
+        return str(column_name or "").strip().lower() in known_columns
+
+    def _metadata_lookup_response(self, ctx: PipelineContext) -> dict | None:
+        rows = self._metadata_lookup_rows(ctx)
+        if not rows:
+            ctx.validation_issues.append("metadata_lookup_no_candidates")
+            return {
+                "status": "ambiguous",
+                "question": ctx.user_question,
+                "message": (
+                    "I treated this as a metadata lookup question, but I couldn't find a "
+                    "confident table candidate. Try adding more keywords like service, domain, "
+                    "or log type."
+                ),
+                "suggestions": [],
+                "validation_issues": ctx.validation_issues[:5],
+                "difficulty": ctx.difficulty.value if ctx.difficulty else "unknown",
+                "confidence": "LOW",
+            }
+
+        import pandas as pd
+
+        ctx.query_plan = {
+            "path_type": "METADATA_LOOKUP",
+            "intent": "METADATA_LOOKUP",
+            "confidence": "HIGH" if rows[0].get("source") == "openmetadata" else "MEDIUM",
+            "compiled_sql": "",
+            "source_tables": [row["table_name"] for row in rows],
+            "metadata_lookup": True,
+        }
+        ctx.selected_tables = [row["table_name"] for row in rows]
+        ctx.result_df = pd.DataFrame(rows)
+        ctx.row_count = len(rows)
+        ctx.selected_sql = "-- metadata lookup request; no SQL executed"
+        ctx.chart_type = "TABLE"
+        ctx.chart_config = {}
+        ctx.confidence = ctx.query_plan["confidence"]
+        top_table = rows[0]["table_name"]
+        ctx.nl_summary = (
+            f"I treated this as a metadata lookup question and found {len(rows)} candidate "
+            f"table{'s' if len(rows) != 1 else ''}. The strongest match is `{top_table}`. "
+            "Review the candidates in the data tab, then ask for schema details or rows from one "
+            "of them."
+        )
+        ctx.follow_up_suggestions = [
+            f"Describe the schema of {top_table}",
+            f"Show today's rows from {top_table}",
+            f"What columns in {top_table} indicate query time or status?",
+        ]
+        return self._success_response(ctx)
+
+    def _metadata_lookup_rows(self, ctx: PipelineContext) -> list[dict]:
+        aggregated: dict[str, dict[str, Any]] = {}
+        question_tokens = self._metadata_tokens(ctx.user_question)
+
+        def add_candidate(
+            table_name: str,
+            source: str,
+            score: float,
+            reason: str,
+            evidence_text: str = "",
+        ) -> None:
+            normalized = table_name.strip()
+            if not normalized:
+                return
+            key = normalized.lower()
+            lexical_score = self._metadata_lexical_score(
+                question_tokens,
+                normalized,
+                evidence_text or reason,
+            )
+            adjusted_score = self._metadata_adjusted_score(
+                base_score=float(score),
+                lexical_score=lexical_score,
+                source=source,
+            )
+            existing = aggregated.get(key)
+            if not existing:
+                aggregated[key] = {
+                    "table_name": normalized,
+                    "score": adjusted_score,
+                    "source": source,
+                    "reasons": [reason[:220]] if reason else [],
+                    "sources": {source},
+                }
+                return
+
+            existing["score"] = max(existing["score"], adjusted_score)
+            existing["sources"].add(source)
+            if reason and reason[:220] not in existing["reasons"]:
+                existing["reasons"].append(reason[:220])
+            if source == "openmetadata" or (
+                source.startswith("documentation") and existing["source"] != "openmetadata"
+            ):
+                existing["source"] = source
+
+        for candidate in sorted(
+            ctx.om_table_candidates,
+            key=lambda item: item.get("score", 0.0),
+            reverse=True,
+        )[:8]:
+            table_name = candidate.get("fqn") or candidate.get("name", "")
+            description = candidate.get("description", "") or ""
+            domain = candidate.get("domain", "")
+            reason_parts = []
+            if description:
+                reason_parts.append(description.strip().replace("\n", " ")[:140])
+            if domain:
+                reason_parts.append(f"domain={domain}")
+            add_candidate(
+                table_name,
+                source="openmetadata",
+                score=float(candidate.get("score", 0.0) or 0.0),
+                reason="; ".join(reason_parts) or "Matched OpenMetadata semantic search",
+                evidence_text=f"{table_name} {description} {domain}",
+            )
+
+        for table_name in ctx.preferred_tables[:8]:
+            add_candidate(
+                table_name,
+                source="semantic_assets",
+                score=0.72,
+                reason="Matched semantic assets or verified examples",
+                evidence_text=table_name,
+            )
+
+        for snippet in ctx.doc_snippets[:8]:
+            related_tables = list(snippet.get("related_tables") or [])
+            if snippet.get("table"):
+                related_tables.append(snippet["table"])
+            reason = snippet.get("title") or snippet.get("content", "")
+            source = f"documentation:{snippet.get('trust_level', 'reference')}"
+            score = float(snippet.get("similarity", 0.0) or 0.0)
+            for table_name in related_tables:
+                add_candidate(
+                    table_name,
+                    source=source,
+                    score=score,
+                    reason=reason,
+                    evidence_text=(
+                        f"{table_name} {snippet.get('title', '')} "
+                        f"{snippet.get('content', '')} "
+                        f"{' '.join(snippet.get('related_metrics', []) or [])}"
+                    ),
+                )
+
+        for table_name, score in self._catalog_table_candidates(ctx.user_question)[:8]:
+            add_candidate(
+                table_name,
+                source="schema_catalog",
+                score=score,
+                reason="Matched table name in local schema catalog",
+                evidence_text=table_name,
+            )
+
+        candidates = []
+        for item in aggregated.values():
+            multi_signal_bonus = min(0.06, 0.02 * max(0, len(item["sources"]) - 1))
+            item["score"] = round(min(1.0, item["score"] + multi_signal_bonus), 3)
+            candidates.append(
+                {
+                    "table_name": item["table_name"],
+                    "source": item["source"],
+                    "score": item["score"],
+                    "reason": " | ".join(item["reasons"][:3]),
+                }
+            )
+
+        candidates.sort(key=lambda item: item["score"], reverse=True)
+        return candidates[:8]
+
+    def _catalog_table_candidates(self, question: str) -> list[tuple[str, float]]:
+        catalog = getattr(self.schema_selector, "_full_column_catalog", None) or {}
+        if not catalog:
+            return []
+
+        question_tokens = self._metadata_tokens(question)
+        if not question_tokens:
+            return []
+
+        scored: list[tuple[str, float]] = []
+        for table_name in catalog.keys():
+            table_tokens = self._metadata_tokens(table_name)
+            overlap = question_tokens & table_tokens
+            if not overlap:
+                continue
+            score = self._metadata_lexical_score(question_tokens, table_name)
+            scored.append((table_name, min(0.85, 0.45 + score)))
+
+        scored.sort(key=lambda item: item[1], reverse=True)
+        return scored
+
+    @staticmethod
+    def _metadata_tokens(text: str) -> set[str]:
+        tokens = {
+            token
+            for token in re.findall(r"[a-z0-9_]+", str(text).lower())
+            if len(token) > 2 and token not in _METADATA_SKIP_TOKENS
+        }
+        expanded = set(tokens)
+        for token in list(tokens):
+            expanded.update(part for part in token.split("_") if len(part) > 2)
+            if token.endswith("ies") and len(token) > 4:
+                expanded.add(token[:-3] + "y")
+            elif token.endswith("s") and len(token) > 3:
+                expanded.add(token[:-1])
+        return expanded
+
+    @classmethod
+    def _metadata_lexical_score(
+        cls,
+        question_tokens: set[str],
+        table_name: str,
+        evidence_text: str = "",
+    ) -> float:
+        if not question_tokens:
+            return 0.0
+        candidate_tokens = cls._metadata_tokens(f"{table_name} {evidence_text}")
+        overlap = question_tokens & candidate_tokens
+        if not overlap:
+            return 0.0
+        coverage = len(overlap) / max(len(question_tokens), 1)
+        exact_table_overlap = len(question_tokens & cls._metadata_tokens(table_name))
+        return min(0.35, coverage * 0.28 + exact_table_overlap * 0.03)
+
+    @staticmethod
+    def _metadata_adjusted_score(base_score: float, lexical_score: float, source: str) -> float:
+        source_bonus = 0.0
+        if source == "openmetadata":
+            source_bonus = 0.05
+        elif source.startswith("documentation:canonical"):
+            source_bonus = 0.04
+        elif source.startswith("documentation:reviewed"):
+            source_bonus = 0.03
+        elif source == "schema_catalog":
+            source_bonus = 0.02
+
+        if lexical_score == 0.0:
+            adjusted = min(0.55, (0.25 * base_score) + source_bonus)
+        else:
+            adjusted = (0.35 * base_score) + lexical_score + source_bonus
+        return min(1.0, adjusted)
 
     def _ambiguous_response(self, ctx: PipelineContext) -> dict:
         # Build "Did you mean?" suggestions from retrieval results

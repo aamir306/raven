@@ -176,6 +176,7 @@ class SemanticModelStore:
         self._model: dict[str, Any] = {}
         self._tables: list[TableAsset] = []
         self._verified_queries: list[VerifiedQueryAsset] = []
+        self._external_query_families: list[VerifiedQueryAsset] = []
         self._rules: list[RuleAsset] = []
         self._relationships: list[RelationshipAsset] = []
         self._table_alias_lookup: dict[str, str] = {}
@@ -400,6 +401,46 @@ class SemanticModelStore:
             len(self._rules),
             len(self._relationships),
         )
+
+    def set_external_query_families(self, families: list[dict[str, Any]]) -> None:
+        assets: list[VerifiedQueryAsset] = []
+        for raw in families:
+            question = str(raw.get("question", "") or "")
+            sql = str(raw.get("sql", "") or "")
+            if not question or not sql:
+                continue
+            tables = list(raw.get("tables_used", []) or _extract_tables(sql))
+            notes = str(
+                raw.get("notes", "")
+                or raw.get("metadata", {}).get("scope_name", "")
+                or raw.get("category", "")
+            )
+            category = str(raw.get("category", "") or "")
+            source = str(raw.get("source", "external") or "external")
+            assets.append(
+                VerifiedQueryAsset(
+                    question=question,
+                    sql=sql,
+                    notes=notes,
+                    category=category,
+                    tables_used=tuple(tables),
+                    source=source,
+                    tokens=frozenset(
+                        _tokenize(
+                            " ".join(
+                                [
+                                    question,
+                                    notes,
+                                    category,
+                                    " ".join(tables),
+                                ]
+                            )
+                        )
+                    ),
+                    metadata=dict(raw.get("metadata", {})),
+                )
+            )
+        self._external_query_families = assets
 
     def retrieve(self, question: str, focus: Any | None = None) -> dict[str, Any]:
         """Return ranked semantic hints for the question."""
@@ -1076,6 +1117,7 @@ class SemanticModelStore:
         focus_name: str,
     ) -> list[dict[str, Any]]:
         assets = list(self._verified_queries)
+        assets.extend(self._external_query_families)
         focus_source = "metabase" if focus_type in {"dashboard", "question", "collection"} else "focus"
         for raw in focus_verified:
             question = raw.get("question", "")
@@ -1117,7 +1159,7 @@ class SemanticModelStore:
             score = 1.0 if exact_match else _score_overlap(query_tokens, set(asset.tokens))
             if focus_tables and set(asset.tables_used) & set(focus_tables):
                 score += 0.15
-            if asset.source == "metabase":
+            if str(asset.source).startswith("metabase"):
                 score += 0.10
             if score <= 0:
                 continue
@@ -1138,7 +1180,7 @@ class SemanticModelStore:
         ranked.sort(
             key=lambda item: (
                 item.get("exact_match", False),
-                item.get("source") == "metabase",
+                str(item.get("source", "")).startswith("metabase"),
                 item.get("similarity", 0.0),
                 len(item.get("tables_used", [])) > 0,
             ),

@@ -16,6 +16,7 @@ def test_confidence_model_high_score_for_perfect_signals():
         cost_guard_passed=True,
         cost_guard_explain_ok=True,
         execution_judge_passed=True,
+        row_count=10,
         entity_match_count=3,
         glossary_match_count=2,
         similar_query_top_sim=0.85,
@@ -25,7 +26,7 @@ def test_confidence_model_high_score_for_perfect_signals():
     )
     result = model.score(signals)
     assert result.band == "HIGH"
-    assert result.score >= 0.72
+    assert result.score >= 0.65
     assert not result.should_abstain
 
 
@@ -51,7 +52,7 @@ def test_confidence_model_medium_band():
     )
     result = model.score(signals)
     assert result.band in {"MEDIUM", "HIGH"}
-    assert result.score >= 0.45
+    assert result.score >= 0.42
 
 
 def test_confidence_model_abstain_for_weak_signals():
@@ -64,7 +65,7 @@ def test_confidence_model_abstain_for_weak_signals():
     )
     result = model.score(signals)
     assert result.band in {"LOW", "ABSTAIN"}
-    assert result.score < 0.45
+    assert result.score < 0.42
 
 
 def test_confidence_model_score_from_selector_backward_compat():
@@ -123,6 +124,7 @@ def test_confidence_model_execution_judge_boost():
         plan_consistent=True,
         cost_guard_passed=True,
         execution_judge_passed=True,  # Post-execution pass
+        row_count=10,                 # Non-empty result
     )
     result_post = model.score(signals_post)
     assert result_post.score > result_pre.score
